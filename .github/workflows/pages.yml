@@ -42,7 +42,13 @@ jobs:
           test -f src/main.js
           node --check src/main.js
 
+      # `enablement: true` magától bekapcsolja a Pages-t és Actions-buildre
+      # állítja, ha még nem volt beállítva — enélkül az első futás
+      # "Get Pages site failed / Not Found" hibával elszáll, és kézzel kell
+      # bekapcsolni a Settings → Pages alatt.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - name: Upload the site
         uses: actions/upload-pages-artifact@v3

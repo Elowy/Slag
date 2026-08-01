@@ -335,9 +335,9 @@ Ez mindent egyetlen HTML-be csomagol — feltöltöd, és kész.
 
 ### GitHub Pages (a legegyszerűbb, ingyenes, HTTPS)
 
-A repóban van egy kész workflow (`.github/workflows/pages.yml`). Egyszeri
-beállítás: **Settings → Pages → Source: GitHub Actions**. Ezután minden push
-automatikusan publikál, és a link ez lesz:
+A repóban van egy kész workflow (`.github/workflows/pages.yml`), ami magától
+be is kapcsolja a Pages-t az első futáskor — nincs teendőd. Minden push
+publikál, és a link ez lesz:
 
 ```
 https://<felhasználónév>.github.io/<repónév>/
