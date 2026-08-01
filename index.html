@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Slag — négyfős helyi tankcsata egy képernyőn, kontrollerrel, böngészőben.">
+  <title>Slag — négyfős tankcsata</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+
+  <!-- The single canvas the whole game is drawn on. The logical resolution is
+       always 1600x900; render.js scales and letterboxes it to the window. -->
+  <canvas id="game" width="1600" height="900" aria-label="Slag játéktér"></canvas>
+
+  <!-- Opening gate. Browsers only start the audio engine and only report
+       connected gamepads after a real user gesture, so the game waits for one
+       click before it begins. main.js hides this on the first click or key. -->
+  <div id="start-overlay" class="overlay">
+    <div class="panel">
+      <h1 class="brand">SLAG</h1>
+      <p class="tagline">Négyfős tankcsata egy képernyőn</p>
+      <p class="cta">Kattints ide a kezdéshez</p>
+      <p class="note">
+        A böngésző csak az első kattintás után engedi a hangot,
+        és csak ezután ismeri fel a csatlakoztatott kontrollereket.
+      </p>
+      <ul class="keys">
+        <li><b>R2</b> vagy <b>Kereszt</b> — csatlakozás a lobbiban</li>
+        <li><b>Options</b> vagy <b>Enter</b> — a meccs indítása</li>
+        <li><b>F</b> — teljes képernyő &nbsp;•&nbsp; <b>M</b> — némítás</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Filled in and revealed by main.js when something throws, so the game
+       never dies silently on a black screen. -->
+  <div id="error-overlay" class="overlay error" hidden>
+    <div class="panel">
+      <h2 id="error-title">Hiba történt</h2>
+      <pre id="error-detail"></pre>
+      <p class="note">
+        Töltsd újra az oldalt (F5). Ha a hiba visszatér, a böngésző fejlesztői
+        konzolján (F12) találod a teljes hibaüzenetet.
+      </p>
+    </div>
+  </div>
+
+  <noscript>
+    <div class="overlay noscript">
+      <div class="panel">
+        <h2>Ehhez a játékhoz JavaScript kell</h2>
+        <p class="note">
+          Kapcsold be a JavaScriptet a böngésződben, majd töltsd újra az oldalt.
+        </p>
+      </div>
+    </div>
+  </noscript>
+
+  <script type="module" src="./src/main.js"></script>
+
+</body>
+</html>

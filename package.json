@@ -1,0 +1,13 @@
+{
+  "name": "slag",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Slag — 4 fős helyi co-op felülnézetes tankcsata böngészőben (Canvas 2D + Gamepad API), build nélküli ES modulokkal.",
+  "scripts": {
+    "start": "node tools/serve.mjs",
+    "build": "node tools/build-single.mjs",
+    "smoke": "node tools/smoke-test.mjs",
+    "lint": "eslint src tools"
+  }
+}
