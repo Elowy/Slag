@@ -611,6 +611,26 @@ function segmentHitsRect(x1, y1, x2, y2, w) {
   return true;
 }
 
+/**
+ * True when a wall blocks the straight segment between two points.
+ *
+ * Exported for the bots: they need it both for "can I actually shoot this
+ * player" and for probing whether a heading is drivable. Pure geometry, no
+ * allocation — it runs a few dozen times per decision tick.
+ *
+ * @param {number} x1
+ * @param {number} y1
+ * @param {number} x2
+ * @param {number} y2
+ * @param {Array<{x:number,y:number,w:number,h:number}>} walls
+ * @returns {boolean}
+ */
+export function pathBlocked(x1, y1, x2, y2, walls) {
+  return segmentBlocked(x1, y1, x2, y2, walls || EMPTY_WALLS);
+}
+
+const EMPTY_WALLS = [];
+
 /** True when at least one wall blocks the segment. */
 function segmentBlocked(x1, y1, x2, y2, walls) {
   for (let i = 0; i < walls.length; i++) {

@@ -46,6 +46,22 @@ Nyugodtan másold pendrive-ra vagy küldd el egy barátodnak.
 > A böngésző biztonsági okból nem engedi, hogy egy `file://` címről megnyitott oldal
 > több JavaScript-modult töltsön be. Erre való a `dist/slag.html`.
 
+### Egyedül, egyetlen kontrollerrel
+
+Nem kell megvárnod a többieket: a lobbiban a **Gépi ellenfelek** sorban 1–3 gépi
+tankot ülhetsz a szabad helyekre, a **Gép szintje** sorban pedig **Könnyű**,
+**Közepes** vagy **Nehéz** szintet választhatsz. Egy ember + egy gép már elég
+egy meccshez.
+
+A gép ugyanazokkal a szabályokkal játszik, mint te: ugyanaz a gyorsulás, a
+fordulás, az újratöltés és a lövedékkészlet — nem lát át a falakon, és csak
+akkor lő, ha tényleg van rálátása. A nehézség abból jön, hogy mennyire pontosan
+céloz, milyen gyorsan reagál, mennyire vezeti meg a mozgó célt, és mennyire tér
+ki a feléje tartó lövedék elől.
+
+Ha menet közben beül még egy ember, a gép átadja neki a helyét — az emberek
+mindig elsőbbséget élveznek.
+
 ---
 
 ## 2. Kontroller csatlakoztatása

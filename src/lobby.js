@@ -39,12 +39,15 @@ import { clamp } from './util.js';
 import { ARENAS } from './arena.js';
 import { Audio } from './audio.js';
 import { Input } from './input.js';
+import { BOT_LEVELS, botLevel, botName } from './ai.js';
 
 /** Focus row of the player's own colour. */
 const ROW_COLOR = 0;
 
 /** The shared setting rows, in focus order. */
 const SETTING_ROWS = [
+  { key: 'bots', label: 'Gépi ellenfelek' },
+  { key: 'botLevel', label: 'Gép szintje' },
   { key: 'bounce', label: 'Pattogó lövedék' },
   { key: 'arena', label: 'Pálya' },
   { key: 'points', label: 'Cél' },
@@ -133,6 +136,10 @@ export class Lobby {
       bounce: true,
       arenaId: 'random',
       pointsToWin: normalizePoints(CONFIG.match.pointsToWin),
+      /** Hány gépi ellenfél üljön be a szabad helyekre (0..maxPlayers-1). */
+      bots: 0,
+      /** A gépi ellenfelek szintje, lásd `BOT_LEVELS`. */
+      botLevelId: 'normal',
     };
 
     this._started = false;
@@ -182,7 +189,20 @@ export class Lobby {
    * stray `Space` — which seats `kb-0` — froze the lobby for everyone else.
    */
   get canStart() {
-    return this.readyCount >= MIN_PLAYERS;
+    // Legalább egy EMBER kell: négy bot egymás elleni meccse nem játék.
+    // A botok viszont teljes értékű résztvevők, így egy kontrollerrel is
+    // el lehet indítani egy meccset.
+    return this.readyHumans >= 1 && this.readyCount >= MIN_PLAYERS;
+  }
+
+  /** @returns {number} kész, élő kontrollerrel rendelkező EMBERI játékosok. */
+  get readyHumans() {
+    let n = 0;
+    for (let i = 0; i < this._slots.length; i++) {
+      const slot = this._slots[i];
+      if (slot && !slot.isBot && slot.ready && !slot.deviceLost) n += 1;
+    }
+    return n;
   }
 
   /** @returns {number} occupied slots whose device is alive and marked ready. */
@@ -281,6 +301,8 @@ export class Lobby {
         deviceId: slot.deviceId,
         colorId: slot.colorId,
         name: slot.name,
+        isBot: !!slot.isBot,
+        botLevel: slot.isBot ? slot.botLevelId : null,
       });
     }
     return out;
@@ -327,6 +349,10 @@ export class Lobby {
     this._advanceSlots(step);
 
     if (!this._externalConsume) this._readInput();
+
+    // A botok a beállításokból következnek, nem külön csatlakoznak: minden
+    // lépésben újraegyeztetjük őket az emberi játékosokkal.
+    this._syncBots();
   }
 
   // ---------------------------------------------------------------------------
@@ -361,6 +387,9 @@ export class Lobby {
     for (let i = 0; i < this._slots.length; i++) {
       const slot = this._slots[i];
       if (!slot) continue;
+      // A gépi ellenfél nem nyomkod semmit: nincs eszköze, amiről olvasni
+      // lehetne, és a színét / készenlétét sem ő állítja.
+      if (slot.isBot) continue;
       const edge = edges.get(slot.deviceId) || this._readEdges(slot.deviceId);
 
       if (edge.confirm && edge.start) {
@@ -414,6 +443,8 @@ export class Lobby {
     for (let i = 0; i < this._slots.length; i++) {
       const slot = this._slots[i];
       if (!slot) continue;
+      // A bot mögött nincs eszköz: soha nem "veszíti el a kontrollerét".
+      if (slot.isBot) continue;
       const device = this._findDevice(slot.deviceId);
       slot.deviceLost = !device || !device.connected;
       slot.deviceLabel = device ? device.label : slot.deviceLabel;
@@ -533,11 +564,121 @@ export class Lobby {
     }
   }
 
+  /**
+   * Ember mindig előbbre való a gépnél: ha minden szék foglalt, a legnagyobb
+   * indexű bot áll fel a csatlakozó játékos kedvéért.
+   * @private
+   * @returns {number} a felszabadított slot indexe, vagy -1
+   */
+  _evictBotSeat() {
+    for (let i = this._slots.length - 1; i >= 0; i--) {
+      const slot = this._slots[i];
+      if (slot && slot.isBot) {
+        this._slots[i] = null;
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  /** @returns {number} emberi (nem gépi) játékosok által elfoglalt székek. */
+  get humanCount() {
+    let n = 0;
+    for (let i = 0; i < this._slots.length; i++) {
+      const slot = this._slots[i];
+      if (slot && !slot.isBot) n += 1;
+    }
+    return n;
+  }
+
+  /**
+   * Ténylegesen beülő botok száma. A kért érték sosem szoríthat ki embert:
+   * ha négyen ülnek a gépnél, a beállítástól függetlenül nulla bot fér be.
+   * @returns {number}
+   */
+  get botCount() {
+    const free = CONFIG.match.maxPlayers - this.humanCount;
+    return clamp(this._settings.bots, 0, Math.max(0, free));
+  }
+
+  /**
+   * Beülteti / felállítja a botokat, hogy a szabad székeken pontosan
+   * `botCount` gépi ellenfél legyen. A botok a HÁTSÓ székeket foglalják, így
+   * egy csatlakozó ember mindig a kisebb indexű helyre kerül.
+   * @private
+   */
+  _syncBots() {
+    const slots = this._slots;
+    const want = this.botCount;
+    const levelId = this._settings.botLevelId;
+
+    const seated = [];
+    for (let i = 0; i < slots.length; i++) {
+      if (slots[i] && slots[i].isBot) seated.push(i);
+    }
+
+    // Túl sok bot: hátulról állnak fel.
+    while (seated.length > want) {
+      slots[seated.pop()] = null;
+    }
+
+    // Túl kevés: a leghátsó szabad székre ülnek be.
+    while (seated.length < want) {
+      let free = -1;
+      for (let i = slots.length - 1; i >= 0; i--) {
+        if (!slots[i]) { free = i; break; }
+      }
+      if (free < 0) break;
+      slots[free] = this._makeBotSlot(free);
+      seated.push(free);
+    }
+
+    // A szint a közös beállításból jön, futás közben is átállítható.
+    for (let i = 0; i < seated.length; i++) {
+      const slot = slots[seated[i]];
+      if (!slot) continue;
+      slot.botLevelId = levelId;
+      slot.deviceLabel = botLevel(levelId).name;
+    }
+  }
+
+  /** @private */
+  _makeBotSlot(index) {
+    const color = this._firstFreeColor();
+    return {
+      // --- PlayerSlot contract ---
+      index,
+      deviceId: null,
+      colorId: color.id,
+      name: botName(index),
+      // --- lobby only ---
+      color,
+      // A gép nem nyomkod Keresztet: mindig kész.
+      ready: true,
+      focus: ROW_COLOR,
+      deviceLabel: botLevel(this._settings.botLevelId).name,
+      deviceLost: false,
+      lostT: 0,
+      joinT: 0,
+      // --- bot only ---
+      isBot: true,
+      botLevelId: this._settings.botLevelId,
+    };
+  }
+
   /** @private */
   _adjustSetting(key, dir) {
     const settings = this._settings;
 
-    if (key === 'bounce') {
+    if (key === 'bots') {
+      const max = CONFIG.match.maxPlayers - 1;
+      settings.bots = clamp(settings.bots + dir, 0, max);
+    } else if (key === 'botLevel') {
+      let index = BOT_LEVELS.findIndex((l) => l.id === settings.botLevelId);
+      if (index < 0) index = 1;
+      index = (index + dir + BOT_LEVELS.length) % BOT_LEVELS.length;
+      settings.botLevelId = BOT_LEVELS[index].id;
+    } else if (key === 'bounce') {
       settings.bounce = !settings.bounce;
     } else if (key === 'arena') {
       let index = ARENA_OPTIONS.findIndex((o) => o.id === settings.arenaId);
@@ -556,6 +697,14 @@ export class Lobby {
   /** Human readable value of a shared setting row. @private */
   _settingValueText(key) {
     const settings = this._settings;
+    if (key === 'bots') {
+      if (settings.bots <= 0) return TEXTS.off;
+      // A kért és a ténylegesen beférő szám eltérhet, ha sokan ülnek a gépnél
+      // — ilyenkor az igazat mutatjuk, nem a kívánságot.
+      const actual = this.botCount;
+      return actual === settings.bots ? `${actual}` : `${actual} (${settings.bots} kérve)`;
+    }
+    if (key === 'botLevel') return botLevel(settings.botLevelId).name;
     if (key === 'bounce') return settings.bounce ? TEXTS.on : TEXTS.off;
     if (key === 'arena') {
       const option = ARENA_OPTIONS.find((o) => o.id === settings.arenaId);
@@ -588,8 +737,9 @@ export class Lobby {
 
   /** @private */
   _join(device) {
-    const slotIndex = this._slots.indexOf(null);
-    if (slotIndex < 0) return; // all four seats are taken
+    let slotIndex = this._slots.indexOf(null);
+    if (slotIndex < 0) slotIndex = this._evictBotSeat();
+    if (slotIndex < 0) return; // all four seats are taken by humans
 
     const color = this._firstFreeColor();
     this._slots[slotIndex] = {
@@ -627,7 +777,7 @@ export class Lobby {
     if (!this.canStart) return;
     for (let i = 0; i < this._slots.length; i++) {
       const slot = this._slots[i];
-      if (!slot) continue;
+      if (!slot || slot.isBot) continue;
       const edge = edges.get(slot.deviceId);
       if (!edge || !edge.start) continue;
       // Same physical key as confirm on the keyboard — already used up.

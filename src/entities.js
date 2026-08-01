@@ -123,6 +123,8 @@ export class Tank {
       || PALETTE.find((c) => c.id === p.colorId)
       || PALETTE[this.index % PALETTE.length];
     this.deviceId = p.deviceId != null ? p.deviceId : null;
+    /** Gépi játékos-e. Csak jelölés: a mozgásszabályok azonosak. */
+    this.isBot = !!p.isBot;
     this.name = p.name || `${this.index + 1}. játékos`;
 
     /** Collision radius; pickups and blasts measure against this. */

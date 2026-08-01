@@ -28,6 +28,7 @@ import { Tank, makeParticles, updateParticles } from './entities.js';
 import { updatePickups, explodeRocket } from './powerups.js';
 import { Audio } from './audio.js';
 import { Input } from './input.js';
+import { BotBrain, botLevel } from './ai.js';
 
 /** Invulnerability granted after a shield absorbed a lethal hit (seconds). */
 const SHIELD_INVULN = 1.0;
@@ -95,6 +96,18 @@ export class Game {
     this._pendingFire = new Set();
     /** @type {Map<string, object>} */
     this._inputViews = new Map();
+
+    /**
+     * Bot agyak tank-index szerint. Csak a gépi játékosoknak van bejegyzésük,
+     * és a meccs újraindítását is túlélik (a `restart()` nem építi újra a
+     * tankokat), így a nehézség végig ugyanaz marad.
+     * @type {Map<number, BotBrain>}
+     */
+    this._brains = new Map();
+    for (let i = 0; i < this.players.length; i++) {
+      const p = this.players[i];
+      if (p.isBot) this._brains.set(p.index, new BotBrain(p.botLevel, p.index));
+    }
 
     // The callback is installed once and kept stable: `powerups.js` reads it
     // off the world object on every blast.
@@ -218,6 +231,8 @@ export class Game {
     }
     const players = this.players;
     for (let i = 0; i < players.length; i++) {
+      // A botnak nincs eszköze — nincs mit lelatchelni.
+      if (players[i].isBot) continue;
       const id = players[i].deviceId;
       if (Input.getState(id).firePressed) this._pendingFire.add(id);
     }
@@ -288,7 +303,11 @@ export class Game {
     const tanks = world.tanks;
     for (let i = 0; i < tanks.length; i++) {
       const tank = tanks[i];
-      tank.update(dt, this._inputFor(tank.deviceId), world);
+      const brain = this._brains.get(tank.index);
+      // A bot ugyanabba a `Tank.update()`-be küldi az inputot, mint egy ember:
+      // se extra sebesség, se extra tűzgyorsaság — csak más döntések.
+      const input = brain ? brain.update(tank, world, dt) : this._inputFor(tank.deviceId);
+      tank.update(dt, input, world);
     }
 
     this._sweepProjectiles(dt);
@@ -724,6 +743,10 @@ function normalizePlayers(players) {
       colorId: color.id,
       name: typeof src.name === 'string' && src.name ? src.name : `${i + 1}. játékos`,
       color,
+      // A bot ugyanolyan játékos, csak nincs mögötte eszköz. A `botLevel`
+      // itt normalizálódik, hogy a Game-nek már ne kelljen ellenőriznie.
+      isBot: !!src.isBot,
+      botLevel: src.isBot ? botLevel(src.botLevel).id : null,
     };
   });
 }

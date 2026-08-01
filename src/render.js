@@ -1760,7 +1760,9 @@ export function drawGame(ctxOrWrapper, game, t) {
 
 /** Lobby slot card geometry. */
 const SLOT_W = 356;
-const SLOT_H = 372;
+// A kártya magasságát a beállítás-sáv szabja meg: a gépi ellenfelek két új
+// sorral bővítették, és a lobbi egyetlen képernyőre fér ki görgetés nélkül.
+const SLOT_H = 336;
 const SLOT_GAP = 16;
 const SLOT_Y = 158;
 const SLOT_X0 = (LOGICAL_W - (SLOT_W * 4 + SLOT_GAP * 3)) / 2;
@@ -1825,7 +1827,7 @@ export function drawLobby(ctxOrWrapper, lobby, t) {
   }
 
   // ---- shared settings ----
-  drawLobbySettings(ctx, settings, slots);
+  drawLobbySettings(ctx, settings, slots, lobby.settingRows);
 
   // ---- controller hint / start prompt / help ----
   drawLobbyFooter(ctx, lobby, canStart, time);
@@ -1866,12 +1868,16 @@ function drawLobbySlot(ctx, x, y, slot, index, taken, t) {
   const col = joined ? resolveColor(slot.colorId || slot.color) : FALLBACK_COLOR;
   const ready = joined && slot.ready === true;
   const lost = joined && slot.deviceLost === true;
+  const isBot = joined && slot.isBot === true;
 
   // Card body. A slot whose controller vanished gets a red frame — otherwise
   // nothing on screen tells the players which seat is holding up the lobby.
   fillRoundRect(ctx, x, y, SLOT_W, SLOT_H, 16, joined ? 'rgba(13, 18, 28, 0.86)' : 'rgba(11, 15, 23, 0.55)');
   if (joined) {
+    // A gép kerete indigó, nem zöld: a zöld azt jelenti, hogy egy EMBER
+    // nyomta meg a készt, és ezt egy pillantással meg kell tudni különböztetni.
     let frame = ready ? '#22c55e' : hexToRgba(col.main, 0.7);
+    if (isBot) frame = 'rgba(129, 140, 248, 0.9)';
     if (lost) frame = '#ef4444';
     strokeRoundRect(ctx, x + 1.5, y + 1.5, SLOT_W - 3, SLOT_H - 3, 15,
       frame, ready || lost ? 3.5 : 2.5);
@@ -1886,7 +1892,7 @@ function drawLobbySlot(ctx, x, y, slot, index, taken, t) {
   ctx.textAlign = 'left';
   ctx.font = font(22, 800);
   ctx.fillStyle = joined ? col.light : 'rgba(148, 163, 184, 0.6)';
-  ctx.fillText(playerLabel(index), x + 20, y + 30);
+  ctx.fillText(isBot ? (slot.name || playerLabel(index)) : playerLabel(index), x + 20, y + 30);
 
   if (!joined) {
     // Empty slot: the join prompt.
@@ -1894,20 +1900,26 @@ function drawLobbySlot(ctx, x, y, slot, index, taken, t) {
     const pulse = 0.6 + 0.4 * (0.5 + 0.5 * Math.sin(t * 3 + index));
     ctx.font = font(22, 800);
     ctx.fillStyle = `rgba(226, 232, 240, ${pulse})`;
-    ctx.fillText('Nyomj R2-t', x + SLOT_W / 2, y + SLOT_H / 2 - 14);
-    ctx.fillText('a csatlakozáshoz', x + SLOT_W / 2, y + SLOT_H / 2 + 16);
+    ctx.fillText('Nyomj R2-t', x + SLOT_W / 2, y + SLOT_H / 2 - 24);
+    ctx.fillText('a csatlakozáshoz', x + SLOT_W / 2, y + SLOT_H / 2 + 6);
     ctx.font = font(15, 600);
     ctx.fillStyle = 'rgba(148, 163, 184, 0.6)';
-    ctx.fillText('billentyűzeten: Space vagy Numpad 0', x + SLOT_W / 2, y + SLOT_H / 2 + 58);
+    ctx.fillText('billentyűzeten: Space vagy Numpad 0', x + SLOT_W / 2, y + SLOT_H / 2 + 46);
+    // Ez a szabad hely gépi ellenféllel is feltölthető — enélkül egy
+    // kontrollerrel játszó ember azt hiheti, hogy nincs kivel játszania.
+    ctx.font = font(14, 700);
+    ctx.fillStyle = 'rgba(129, 140, 248, 0.85)';
+    ctx.fillText('vagy állíts be gépi ellenfelet lent', x + SLOT_W / 2, y + SLOT_H / 2 + 72);
     ctx.restore();
     return;
   }
 
-  // Device label.
+  // Device label — a botnál a nehézségi szint áll a kontroller nevének helyén.
   ctx.textAlign = 'right';
   ctx.font = font(14, 600);
-  ctx.fillStyle = 'rgba(148, 163, 184, 0.75)';
-  ctx.fillText(deviceLabel(slot.deviceId), x + SLOT_W - 20, y + 30);
+  ctx.fillStyle = isBot ? 'rgba(165, 180, 252, 0.9)' : 'rgba(148, 163, 184, 0.75)';
+  ctx.fillText(isBot ? `GÉP · ${slot.deviceLabel || ''}` : deviceLabel(slot.deviceId),
+    x + SLOT_W - 20, y + 30);
 
   // Tank preview, gently rocking.
   ctx.save();
@@ -1937,7 +1949,8 @@ function drawLobbySlot(ctx, x, y, slot, index, taken, t) {
   ctx.textAlign = 'center';
   ctx.font = font(14, 700);
   ctx.fillStyle = focus === 0 ? 'rgba(226,232,240,0.9)' : 'rgba(148,163,184,0.55)';
-  ctx.fillText(slotColorHint(slot.deviceId), x + SLOT_W / 2, barY - 16);
+  ctx.fillText(isBot ? 'A gép színe automatikus' : slotColorHint(slot.deviceId),
+    x + SLOT_W / 2, barY - 16);
 
   const sw = 32;
   const pitch = 38;
@@ -1984,6 +1997,14 @@ function drawLobbySlot(ctx, x, y, slot, index, taken, t) {
     ctx.font = font(13, 600);
     ctx.fillStyle = 'rgba(254, 202, 202, 0.85)';
     ctx.fillText('a hely hamarosan felszabadul', x + SLOT_W / 2, badgeY + 27);
+  } else if (isBot) {
+    // A gép mindig kész — de más színnel, hogy egy pillantásra elváljon
+    // attól a széktől, ahol tényleg ül valaki.
+    fillRoundRect(ctx, x + 20, badgeY, SLOT_W - 40, 34, 17, 'rgba(99, 102, 241, 0.18)');
+    strokeRoundRect(ctx, x + 20, badgeY, SLOT_W - 40, 34, 17, 'rgba(129, 140, 248, 0.9)', 2);
+    ctx.font = font(17, 800);
+    ctx.fillStyle = '#c7d2fe';
+    ctx.fillText('GÉPI ELLENFÉL', x + SLOT_W / 2, badgeY + 18);
   } else if (ready) {
     fillRoundRect(ctx, x + 20, badgeY, SLOT_W - 40, 34, 17, 'rgba(34, 197, 94, 0.18)');
     strokeRoundRect(ctx, x + 20, badgeY, SLOT_W - 40, 34, 17, '#22c55e', 2);
@@ -2011,18 +2032,22 @@ function drawLobbySlot(ctx, x, y, slot, index, taken, t) {
   ctx.restore();
 }
 
-function drawLobbySettings(ctx, settings, slots) {
-  const rows = [
-    { label: 'Pattogó lövedék', value: settings.bounce === false ? 'KI' : 'BE' },
-    { label: 'Pálya', value: arenaLabel(settings.arenaId) },
-    { label: 'Cél', value: `${settings.pointsToWin ?? CONFIG.match.pointsToWin} pont` },
-  ];
+function drawLobbySettings(ctx, settings, slots, lobbyRows) {
+  // A sorok a lobbitól jönnek, ha van honnan: így egy új beállítás sosem
+  // maradhat le a képernyőről csak azért, mert itt kézzel is fel volt sorolva.
+  const rows = Array.isArray(lobbyRows) && lobbyRows.length
+    ? lobbyRows.map((r) => ({ label: r.label, value: r.value }))
+    : [
+      { label: 'Pattogó lövedék', value: settings.bounce === false ? 'KI' : 'BE' },
+      { label: 'Pálya', value: arenaLabel(settings.arenaId) },
+      { label: 'Cél', value: `${settings.pointsToWin ?? CONFIG.match.pointsToWin} pont` },
+    ];
 
   const boxW = 720;
   const boxX = (LOGICAL_W - boxW) / 2;
-  const boxY = 546;
-  const rowH = 46;
-  const boxH = rows.length * rowH + 26;
+  const boxY = 506;
+  const rowH = 38;
+  const boxH = rows.length * rowH + 18;
 
   ctx.save();
   ctx.textBaseline = 'middle';
@@ -2030,8 +2055,8 @@ function drawLobbySettings(ctx, settings, slots) {
   strokeRoundRect(ctx, boxX + 1, boxY + 1, boxW - 2, boxH - 2, 13, 'rgba(148, 163, 184, 0.28)', 1.5);
 
   for (let i = 0; i < rows.length; i++) {
-    const ry = boxY + 13 + i * rowH;
-    // Settings rows are focus index 1..3; collect the players sitting on them.
+    const ry = boxY + 9 + i * rowH;
+    // Settings rows are focus index 1..n; collect the players sitting on them.
     const focusedBy = [];
     for (let s = 0; s < slots.length; s++) {
       const slot = slots[s];
@@ -2061,10 +2086,10 @@ function drawLobbySettings(ctx, settings, slots) {
   }
 
   ctx.textAlign = 'center';
-  ctx.font = font(14, 600);
+  ctx.font = font(13, 600);
   ctx.fillStyle = 'rgba(148, 163, 184, 0.65)';
   ctx.fillText('D-pad fel/le — sorváltás (saját szín ↔ közös beállítások), bal/jobb — érték',
-    LOGICAL_W / 2, boxY + boxH + 18);
+    LOGICAL_W / 2, boxY + boxH + 13);
   ctx.restore();
 }
 
@@ -2113,9 +2138,13 @@ function drawLobbyFooter(ctx, lobby, canStart, t) {
   } else {
     ctx.font = font(20, 700);
     ctx.fillStyle = 'rgba(148, 163, 184, 0.7)';
-    const text = readyCount === 1
-      ? 'Még egy kész játékos kell az indításhoz'
-      : 'Legalább 2 kész játékos kell az indításhoz';
+    // A hiányzó feltételt mondjuk ki, nem egy általánosat: egy kontrollerrel
+    // ülő játékosnak az a használható infó, hogy gépi ellenfelet is kaphat.
+    const humans = Number.isFinite(lobby.readyHumans) ? lobby.readyHumans : readyCount;
+    let text;
+    if (humans < 1) text = 'Legalább egy embernek készen kell állnia';
+    else if (readyCount < 2) text = 'Állíts be gépi ellenfelet, vagy várj még egy játékosra';
+    else text = 'Legalább 2 kész játékos kell az indításhoz';
     ctx.fillText(text, LOGICAL_W / 2, py);
     // Naming names is only useful once somebody IS ready — with an empty lobby
     // it would just repeat all four slots back at the players.
