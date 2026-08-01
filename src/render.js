@@ -1974,9 +1974,13 @@ function drawLobbySlot(ctx, x, y, slot, index, taken, t) {
     x + SLOT_W - 20, y + 30);
 
   // Tank preview, gently rocking.
+  // Az előnézet 2,5-szeres méretben és y+128 középponttal a billegés szélén
+  // 357-ig ért le, a szín-súgó betűtetői viszont 345-nél kezdődnek: a sötét
+  // lánctalp-sarok átfutott a szövegen. 2,2-szeres méret és y+122 középpont
+  // mellett a kettő elválik.
   ctx.save();
-  ctx.translate(x + SLOT_W / 2, y + 128);
-  ctx.scale(2.5, 2.5);
+  ctx.translate(x + SLOT_W / 2, y + 122);
+  ctx.scale(2.2, 2.2);
   const preview = {
     index,
     color: col,
@@ -1996,7 +2000,9 @@ function drawLobbySlot(ctx, x, y, slot, index, taken, t) {
   ctx.restore();
 
   // Colour picker strip: all eight palette colours, taken ones struck through.
-  const focus = slotFocus(slot);
+  // A botnak nincs fókusza: a fehér kiemelő keret azt sugallná, hogy valaki
+  // épp a színét szerkeszti — miközben fölötte az áll, hogy automatikus.
+  const focus = isBot ? -1 : slotFocus(slot);
   const barY = y + 212;
   ctx.textAlign = 'center';
   ctx.font = font(14, 700);
@@ -2048,7 +2054,7 @@ function drawLobbySlot(ctx, x, y, slot, index, taken, t) {
     ctx.fillText('Kontroller lecsatlakozott', x + SLOT_W / 2, badgeY + 11);
     ctx.font = font(13, 600);
     ctx.fillStyle = 'rgba(254, 202, 202, 0.85)';
-    ctx.fillText('a hely hamarosan felszabadul', x + SLOT_W / 2, badgeY + 27);
+    ctx.fillText('a hely hamarosan felszabadul', x + SLOT_W / 2, badgeY + 25);
   } else if (isBot) {
     // A gép mindig kész — de más színnel, hogy egy pillantásra elváljon
     // attól a széktől, ahol tényleg ül valaki.
@@ -2095,6 +2101,9 @@ function drawLobbySettings(ctx, settings, slots, lobbyRows) {
       { label: 'Cél', value: `${settings.pointsToWin ?? CONFIG.match.pointsToWin} pont` },
     ];
 
+  /** A sor eleji sáv, ahova a fókusz-pöttyök kerülnek (4 pötty + hézag). */
+  const LABEL_INDENT = 72;
+
   const boxW = 720;
   const boxX = (LOGICAL_W - boxW) / 2;
   const boxY = 506;
@@ -2121,17 +2130,20 @@ function drawLobbySettings(ctx, settings, slots, lobbyRows) {
     ctx.textAlign = 'left';
     ctx.font = font(20, 700);
     ctx.fillStyle = focusedBy.length ? '#e2e8f0' : 'rgba(203, 213, 225, 0.75)';
-    ctx.fillText(rows[i].label, boxX + 28, ry + rowH / 2 - 2);
+    // A címke a pöttyöknek fenntartott sáv UTÁN kezdődik. Négy játékos
+    // pöttyei a 493. pixelig érnek; a régi `boxX + 28` (=468) kezdet miatt
+    // három-négy embernél a "Gépi ellenfelek" első betűit takarták el.
+    ctx.fillText(rows[i].label, boxX + LABEL_INDENT, ry + rowH / 2 - 2);
 
     ctx.textAlign = 'right';
     ctx.font = font(21, 800);
     ctx.fillStyle = '#f8fafc';
     ctx.fillText(`‹  ${rows[i].value}  ›`, boxX + boxW - 28, ry + rowH / 2 - 2);
 
-    // Colour dots of the players currently editing this row.
+    // Colour dots of the players currently editing this row — a saját sávjukban.
     for (let k = 0; k < focusedBy.length; k++) {
       ctx.beginPath();
-      ctx.arc(boxX + 14 + k * 12, ry + rowH / 2 - 2, 4, 0, Math.PI * 2);
+      ctx.arc(boxX + 16 + k * 11, ry + rowH / 2 - 2, 4, 0, Math.PI * 2);
       ctx.fillStyle = focusedBy[k].main;
       ctx.fill();
     }
@@ -2193,10 +2205,21 @@ function drawLobbyFooter(ctx, lobby, canStart, t) {
     // A hiányzó feltételt mondjuk ki, nem egy általánosat: egy kontrollerrel
     // ülő játékosnak az a használható infó, hogy gépi ellenfelet is kaphat.
     const humans = Number.isFinite(lobby.readyHumans) ? lobby.readyHumans : readyCount;
+    // Csak olyan megoldást ajánlhatunk, ami tényleg járható. Ha már ül a
+    // gépnél valaki, aki nem nyomott készre, ŐT kell megnevezni: gépi
+    // ellenfelet hiába javasolnánk, ha nincs is szabad szék neki.
+    const joined = Number.isFinite(lobby.humanCount) ? lobby.humanCount : humans;
+    const notReady = Math.max(0, joined - humans);
     let text;
-    if (humans < 1) text = 'Legalább egy embernek készen kell állnia';
-    else if (readyCount < 2) text = 'Állíts be gépi ellenfelet, vagy várj még egy játékosra';
-    else text = 'Legalább 2 kész játékos kell az indításhoz';
+    if (humans < 1) {
+      text = 'Legalább egy embernek készen kell állnia';
+    } else if (notReady > 0) {
+      text = notReady === 1
+        ? 'Még egy játékosnak meg kell nyomnia a Keresztet'
+        : `Még ${notReady} játékosnak meg kell nyomnia a Keresztet`;
+    } else {
+      text = 'Állíts be gépi ellenfelet, vagy várj még egy játékosra';
+    }
     ctx.fillText(text, LOGICAL_W / 2, py);
     // Naming names is only useful once somebody IS ready — with an empty lobby
     // it would just repeat all four slots back at the players.
@@ -2210,27 +2233,34 @@ function drawLobbyFooter(ctx, lobby, canStart, t) {
 
   // A blocked Gamepad API outranks the "press a button" nudge: no amount of
   // button pressing will help, and the message has to name the actual fix.
+  // A sávok magassága és helye szűk: fölöttük az indítás-pirula alja 792-nél,
+  // alattuk a vezérlés-legenda betűtetői 841-nél vannak. 796..836 az a doboz,
+  // ami mindkettőt elkerüli — ezért y=816, magasság 40, MINDKÉT sávnál.
+  const BAND_Y = 816;
+  const BAND_H = 40;
   const support = lobby.gamepadSupport;
   if (support === 'insecure' || support === 'unsupported') {
-    const y = 818;
     const insecure = support === 'insecure';
     const w = 940;
-    fillRoundRect(ctx, LOGICAL_W / 2 - w / 2, y - 26, w, 52, 26, 'rgba(239, 68, 68, 0.16)');
-    strokeRoundRect(ctx, LOGICAL_W / 2 - w / 2, y - 26, w, 52, 26, 'rgba(248, 113, 113, 0.75)', 2);
-    ctx.font = font(19, 800);
+    fillRoundRect(ctx, LOGICAL_W / 2 - w / 2, BAND_Y - BAND_H / 2, w, BAND_H, BAND_H / 2, 'rgba(239, 68, 68, 0.16)');
+    strokeRoundRect(ctx, LOGICAL_W / 2 - w / 2, BAND_Y - BAND_H / 2, w, BAND_H, BAND_H / 2, 'rgba(248, 113, 113, 0.75)', 2);
     ctx.fillStyle = '#fecaca';
     const msg = insecure
       ? 'A böngésző letiltotta a kontrollereket, mert az oldal nem HTTPS-en fut — addig billentyűzettel játszhattok.'
       : 'Ez a böngésző nem támogatja a kontrollereket — billentyűzettel viszont játszhattok.';
     fitFont(ctx, msg, w - 48, 19, 800);
-    ctx.fillText(msg, LOGICAL_W / 2, y);
+    ctx.fillText(msg, LOGICAL_W / 2, BAND_Y);
   } else if (noPads) {
-    const y = 818;
-    fillRoundRect(ctx, LOGICAL_W / 2 - 330, y - 22, 660, 44, 22, 'rgba(234, 179, 8, 0.14)');
-    strokeRoundRect(ctx, LOGICAL_W / 2 - 330, y - 22, 660, 44, 22, 'rgba(234, 179, 8, 0.6)', 2);
-    ctx.font = font(19, 700);
+    // Ez a lobbi ALAPÁLLAPOTA betöltéskor, tehát a legtöbbet látott képernyő:
+    // a szöveg 19-es mérettel ~738 px, ezért a pirula 800 széles, és a
+    // `fitFont` külön is garantálja, hogy soha ne lógjon ki a keretéből.
+    const w = 800;
+    fillRoundRect(ctx, LOGICAL_W / 2 - w / 2, BAND_Y - BAND_H / 2, w, BAND_H, BAND_H / 2, 'rgba(234, 179, 8, 0.14)');
+    strokeRoundRect(ctx, LOGICAL_W / 2 - w / 2, BAND_Y - BAND_H / 2, w, BAND_H, BAND_H / 2, 'rgba(234, 179, 8, 0.6)', 2);
     ctx.fillStyle = '#fde047';
-    ctx.fillText('Nyomj meg egy gombot a kontrolleren… (vagy játssz billentyűzettel)', LOGICAL_W / 2, y);
+    const msg = 'Nyomj meg egy gombot a kontrolleren… (vagy játssz billentyűzettel)';
+    fitFont(ctx, msg, w - 40, 19, 700);
+    ctx.fillText(msg, LOGICAL_W / 2, BAND_Y);
   }
 
   // Control legend.

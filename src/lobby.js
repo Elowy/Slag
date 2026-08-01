@@ -383,6 +383,11 @@ export class Lobby {
     // to see the start prompt, change a colour or take their ready back.
     const spentConfirm = new Set();
 
+    // A `canStart` a hurok alatt változhatna (valaki készre vált), és akkor
+    // ugyanaz a két gombnyomás az ÜLÉSRENDTŐL függően mást jelentene. Egyszer
+    // számoljuk ki, és mindenkire ugyanaz vonatkozzon.
+    const canStartNow = this.canStart;
+
     // 1. Players already in a slot: focus, colour, settings, ready, leave.
     for (let i = 0; i < this._slots.length; i++) {
       const slot = this._slots[i];
@@ -397,7 +402,7 @@ export class Lobby {
         // "ready" while there is still something to get ready for, "start" once
         // this player is ready and the lobby can actually start. Taking the
         // ready back stays possible with Kör / Esc.
-        if (slot.ready && this.canStart) edge.confirm = false;
+        if (slot.ready && canStartNow) edge.confirm = false;
         else spentConfirm.add(slot.deviceId);
       } else if (edge.confirm) {
         spentConfirm.add(slot.deviceId);
@@ -408,6 +413,12 @@ export class Lobby {
 
     // 2. Free devices pressing confirm / fire join an empty slot.
     this._handleJoins(edges, spentConfirm);
+
+    // A botokat MÉG az indítás előtt egyeztetjük. Enélkül, ha valaki ebben a
+    // frame-ben kapcsolta ki a gépi ellenfelet és valaki más ugyanekkor nyomott
+    // Optionst, a meccs a régi rosterrel indult — az imént kikapcsolt bot is
+    // ott állt a pályán.
+    this._syncBots();
 
     // 3. Options / Enter from any joined player starts the match.
     this._handleStart(edges, spentConfirm);
@@ -571,7 +582,10 @@ export class Lobby {
    * @returns {number} a felszabadított slot indexe, vagy -1
    */
   _evictBotSeat() {
-    for (let i = this._slots.length - 1; i >= 0; i--) {
+    // ELÖLRŐL keresünk: a beülő ember a legkisebb szabad sorszámot kapja
+    // ("2. játékos", ne "4. játékos" két gép közé ékelve). A `_syncBots()`
+    // úgyis a leghátsó szabad székre ülteti vissza a botot.
+    for (let i = 0; i < this._slots.length; i++) {
       const slot = this._slots[i];
       if (slot && slot.isBot) {
         this._slots[i] = null;
@@ -773,17 +787,50 @@ export class Lobby {
   }
 
   /** @private */
+  /**
+   * Options / Enter: a meccs indítása.
+   *
+   * FONTOS: csak KÉSZ játékos indíthat. Enélkül az történt, hogy egy frissen
+   * beült játékos — aki még nem nyomott Keresztet — az Optionsszal elindította
+   * a meccset, a `playersForGame()` viszont kihagyta őt (nem kész), így
+   * végignézte a saját maga indította meccset. Kontrolleren ez könnyen
+   * megesett, mert a Kereszt és az Options külön gomb; billentyűzeten csak
+   * azért nem, mert az Enter egyszerre confirm és start.
+   *
+   * Ha nem kész játékos nyom Optionst, a gomb nem néma: késszé teszi. Így
+   * a következő nyomásra már vele együtt indul a meccs.
+   * @private
+   */
   _handleStart(edges, spentConfirm) {
-    if (!this.canStart) return;
+    const canStart = this.canStart;
+
+    const pressedStart = (slot) => {
+      if (!slot || slot.isBot || slot.deviceLost) return false;
+      const edge = edges.get(slot.deviceId);
+      if (!edge || !edge.start) return false;
+      // Same physical key as confirm on the keyboard — already used up.
+      if (spentConfirm && spentConfirm.has(slot.deviceId)) return false;
+      return true;
+    };
+
+    // 1. Kész játékos indíthat.
+    if (canStart) {
+      for (let i = 0; i < this._slots.length; i++) {
+        const slot = this._slots[i];
+        if (!pressedStart(slot) || !slot.ready) continue;
+        this._started = true;
+        Audio.play('countdown', { volume: 1.1 });
+        return;
+      }
+    }
+
+    // 2. Nem kész játékos Optionsa készre állít — nem indít nélküle.
     for (let i = 0; i < this._slots.length; i++) {
       const slot = this._slots[i];
-      if (!slot || slot.isBot) continue;
-      const edge = edges.get(slot.deviceId);
-      if (!edge || !edge.start) continue;
-      // Same physical key as confirm on the keyboard — already used up.
-      if (spentConfirm && spentConfirm.has(slot.deviceId)) continue;
-      this._started = true;
-      Audio.play('countdown', { volume: 1.1 });
+      if (!pressedStart(slot) || slot.ready) continue;
+      slot.ready = true;
+      Audio.play('join');
+      Input.rumble(slot.deviceId, 0.4, 0.3, 110);
       return;
     }
   }

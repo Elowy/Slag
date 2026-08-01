@@ -70,6 +70,15 @@ let cursorHidden = false;
 let audioUnlocked = false;
 let errorShown = false;
 
+/**
+ * A kezdőfátyol állapota. Külön él a `audioUnlocked`-tól: a fátyol
+ * kontrollergombra is eltűnik, a hangot viszont csak igazi felhasználói
+ * gesztus (kattintás / billentyű) oldhatja fel.
+ */
+let overlayHidden = false;
+/** @type {null|Function} az `installOverlay()` által beállított elrejtő. */
+let hideOverlayFn = null;
+
 // ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
@@ -134,6 +143,7 @@ function tick(nowMs) {
 
   // --- input: exactly once per frame, BEFORE the simulation steps ----------
   Input.poll();
+  dismissOverlayWithGamepad();
   handlePauseInput();
   updatePause();
 
@@ -268,16 +278,33 @@ function handlePauseInput() {
   if (st !== 'playing' && st !== 'countdown') return;
 
   const stranded = missingHumanPlayers().length > 0;
+
+  // Kiszorult állapotban BÁRMELYIK élő eszköz kivezethet — nem csak a
+  // meccsben ülő játékosoké. Egy ember + botok meccsben ugyanis pont annak
+  // az egy embernek ment el a kontrollere, akitől a kilépést várnánk; a
+  // billentyűzet viszont mindig ott van, és az Enter kivisz a lobbiba.
+  if (stranded) {
+    const devices = Input.listDevices();
+    for (let i = 0; i < devices.length; i++) {
+      const dev = devices[i];
+      if (!dev.connected) continue;
+      if (Input.getState(dev.id).startPressed) {
+        enterLobby();
+        return;
+      }
+    }
+    return;
+  }
+
+  if (st !== 'playing') return;
+
   const players = game.players || [];
   for (let i = 0; i < players.length; i++) {
     const p = players[i];
     if (p.isBot) continue;
-    // Akinek nincs eszköze, az nyilván nem tud nyomni sem.
     if (!Input.isConnected(p.deviceId)) continue;
     if (!Input.getState(p.deviceId).startPressed) continue;
-
-    if (stranded) enterLobby();
-    else if (st === 'playing') pauseManual = !pauseManual;
+    pauseManual = !pauseManual;
     return;
   }
 }
@@ -304,7 +331,7 @@ function updatePause() {
       reason: 'device',
       title: 'Kontroller lecsatlakozott',
       detail: `${who} — a meccs addig áll`,
-      hint: 'Csatlakoztasd újra — magától folytatódik   ·   Options — vissza a lobbiba',
+      hint: 'Csatlakoztasd újra — magától folytatódik   ·   Options / Enter — vissza a lobbiba',
     };
     return;
   }
@@ -484,6 +511,22 @@ function installOverlay() {
 
     window.removeEventListener('pointerdown', dismiss);
     window.removeEventListener('keydown', dismiss);
+    hideOverlay();
+  };
+
+  /**
+   * Elrejti a fátylat a hang feloldása NÉLKÜL.
+   *
+   * Kontrollergombbal is tovább kell tudni lépni: aki a kanapén ül egy
+   * DualSense-szel, annak eddig zsákutca volt a kezdőképernyő — a játék mögötte
+   * már látta a padet, de a fátyol csak kattintásra és billentyűre tűnt el.
+   * A hang viszont NEM oldható fel gamepad-gombbal (a böngésző nem tekinti
+   * felhasználói gesztusnak), ezért a `dismiss` figyelők a helyükön maradnak:
+   * az első kattintás vagy billentyű később feloldja a hangot.
+   */
+  const hideOverlay = () => {
+    if (overlayHidden) return;
+    overlayHidden = true;
 
     if (!overlay) return;
     overlay.classList.add('is-gone');
@@ -491,8 +534,31 @@ function installOverlay() {
     setTimeout(() => { overlay.hidden = true; }, OVERLAY_FADE_MS);
   };
 
+  hideOverlayFn = hideOverlay;
+
   window.addEventListener('pointerdown', dismiss);
   window.addEventListener('keydown', dismiss);
+}
+
+/**
+ * A kezdőfátyol eltüntetése kontrollergombra.
+ *
+ * A frame-hurokból hívjuk, közvetlenül a poll után. A gombnyomás CSAK a
+ * fátyolé: `consumeEdges()` nélkül ugyanaz az R2 egyből be is ültetné a
+ * játékost egy olyan lobbiba, amit még meg sem látott.
+ */
+function dismissOverlayWithGamepad() {
+  if (overlayHidden || !hideOverlayFn) return;
+
+  const devices = Input.listDevices();
+  for (let i = 0; i < devices.length; i++) {
+    const dev = devices[i];
+    if (dev.kind !== 'gamepad' || !dev.connected) continue;
+    if (!Input.getState(dev.id).anyPressed) continue;
+    hideOverlayFn();
+    Input.consumeEdges();
+    return;
+  }
 }
 
 // ---------------------------------------------------------------------------
