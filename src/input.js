@@ -735,6 +735,17 @@ export const Input = {
   },
 
   /**
+   * Él-e még az eszköz. A meccs ezzel veszi észre, ha egy kontroller
+   * elaludt vagy lecsatlakozott — a billentyűzet mindig csatlakoztatott.
+   * @param {string} deviceId
+   * @returns {boolean}
+   */
+  isConnected(deviceId) {
+    const dev = devices.get(deviceId);
+    return !!(dev && dev.connected);
+  },
+
+  /**
    * @param {string} deviceId
    * @returns {object} the live InputState of the device, or a fresh neutral
    * state for unknown / disconnected ids.

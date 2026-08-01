@@ -103,6 +103,19 @@ Minden padot külön-külön be kell „ébreszteni” egy gombnyomással.
 | **Jobb stick** | Mozgás. A stick iránya a haladás iránya; a tank arra fordul és elindul. Amennyire kinyomod, olyan gyorsan megy. |
 | **R2** (analóg) | Lövés |
 | **Bal stick** | *Opcionális* toronycélzás. Alapból a cső előre néz. Ha megmozdítod a bal sticket, a torony külön irányba fordul; ha 3 másodpercig elengeded, visszaáll előrenézésbe. |
+| **Options** | Szünet be / ki (a visszaszámlálás alatt még nem él) |
+
+### Szünet
+
+A meccs magától megáll, ha valami elvenné tőletek az irányítást:
+
+- **Lecsatlakozik egy kontroller** (a DualSense pár perc tétlenség után elalszik).
+  A tankod különben mozdulatlan célpont lenne. Ha visszacsatlakozik, a meccs
+  magától folytatódik; ha nem jönne vissza, az **Options** visszavisz a lobbiba.
+- **Elveszti a fókuszt az ablak** (átkattintasz máshova). A böngésző ilyenkor
+  befagyasztja a kontroller állapotát az utolsó értéken, vagyis a tankod
+  magától menne tovább. Kattints vissza az ablakra, és folytatódik.
+- **Valaki Optionst nyom**, mert szünetet kér.
 
 ### Kontroller — lobbi
 

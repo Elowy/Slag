@@ -134,19 +134,28 @@ function tick(nowMs) {
 
   // --- input: exactly once per frame, BEFORE the simulation steps ----------
   Input.poll();
-  consumeInput();
+  handlePauseInput();
+  updatePause();
 
-  // --- fixed timestep accumulator -----------------------------------------
-  accumulator += dt;
-  let steps = 0;
-  while (accumulator >= STEP && steps < MAX_STEPS) {
-    stepScene(STEP);
-    accumulator -= STEP;
-    steps += 1;
-  }
-  if (steps >= MAX_STEPS) {
-    // We are behind: drop the backlog instead of trying to catch up forever.
+  // Szünetben a szimuláció ÁLL, és az inputot sem nyeljük el: egy ravasz-él
+  // nem parkolhat be, hogy a folytatás pillanatában elsüljön.
+  if (isPaused()) {
     accumulator = 0;
+  } else {
+    consumeInput();
+
+    // --- fixed timestep accumulator ---------------------------------------
+    accumulator += dt;
+    let steps = 0;
+    while (accumulator >= STEP && steps < MAX_STEPS) {
+      stepScene(STEP);
+      accumulator -= STEP;
+      steps += 1;
+    }
+    if (steps >= MAX_STEPS) {
+      // We are behind: drop the backlog instead of trying to catch up forever.
+      accumulator = 0;
+    }
   }
 
   // --- once-per-frame work -------------------------------------------------
@@ -206,6 +215,123 @@ function enterLobby() {
   lobby.reset();
 }
 
+// ---------------------------------------------------------------------------
+// Pause
+// ---------------------------------------------------------------------------
+
+/**
+ * A meccs három okból állhat meg. Mind a három ugyanazt a bajt kerüli el:
+ * a képernyőn zajlik a játék, miközben valaki nem tud beleszólni.
+ *
+ *   'device' — egy EMBER kontrollere lecsatlakozott (a DualSense magától
+ *              elalszik pár perc tétlenség után). A tankja mozdulatlan
+ *              célpont lenne. Újracsatlakozáskor magától folytatódik.
+ *   'focus'  — az ablak elvesztette a fókuszt. A gamepad-állapot ilyenkor
+ *              befagy az utolsó értéken, vagyis a tank tovább menne előre.
+ *   'manual' — valaki Optionst nyomott, mert szünetet akart.
+ */
+let pauseManual = false;
+/** Csak `blur` eseményre vált false-ra; induláskor sosem feltételezünk vakot. */
+let windowFocused = true;
+
+/** @returns {boolean} áll-e éppen a szimuláció. */
+function isPaused() {
+  return !!(game && game.pause && game.pause.active);
+}
+
+/** @returns {Array<string>} azon EMBERI játékosok nevei, akiknek elment az eszköze. */
+function missingHumanPlayers() {
+  if (!game) return [];
+  const out = [];
+  const players = game.players || [];
+  for (let i = 0; i < players.length; i++) {
+    const p = players[i];
+    if (p.isBot) continue;
+    if (!Input.isConnected(p.deviceId)) out.push(p.name);
+  }
+  return out;
+}
+
+/**
+ * Options / Enter a meccs alatt.
+ *
+ * Normál esetben szünetet kapcsol. Ha viszont épp azért állunk, mert valakinek
+ * elment a kontrollere, akkor kiutat ad a lobbiba: a böngésző nem garantálja,
+ * hogy egy újracsatlakozó pad ugyanazt az indexet (és így ugyanazt az
+ * eszköz-azonosítót) kapja vissza, és e nélkül a meccs örökre bent ragadna.
+ */
+function handlePauseInput() {
+  if (scene !== 'game' || !game) return;
+  const st = game.state;
+  if (st !== 'playing' && st !== 'countdown') return;
+
+  const stranded = missingHumanPlayers().length > 0;
+  const players = game.players || [];
+  for (let i = 0; i < players.length; i++) {
+    const p = players[i];
+    if (p.isBot) continue;
+    // Akinek nincs eszköze, az nyilván nem tud nyomni sem.
+    if (!Input.isConnected(p.deviceId)) continue;
+    if (!Input.getState(p.deviceId).startPressed) continue;
+
+    if (stranded) enterLobby();
+    else if (st === 'playing') pauseManual = !pauseManual;
+    return;
+  }
+}
+
+/** Kiszámolja az aktuális szünet-állapotot és ráteszi a `game`-re. */
+function updatePause() {
+  if (scene !== 'game' || !game) {
+    pauseManual = false;
+    return;
+  }
+  // Az eredményhirdetést nem szüneteltetjük: ott úgyis mindenki gombra vár.
+  const st = game.state;
+  if (st !== 'playing' && st !== 'countdown') {
+    game.pause = null;
+    pauseManual = false;
+    return;
+  }
+
+  const lost = missingHumanPlayers();
+  if (lost.length) {
+    const who = lost.length === 1 ? lost[0] : lost.join(', ');
+    game.pause = {
+      active: true,
+      reason: 'device',
+      title: 'Kontroller lecsatlakozott',
+      detail: `${who} — a meccs addig áll`,
+      hint: 'Csatlakoztasd újra — magától folytatódik   ·   Options — vissza a lobbiba',
+    };
+    return;
+  }
+
+  if (!windowFocused) {
+    game.pause = {
+      active: true,
+      reason: 'focus',
+      title: 'Szünet',
+      detail: 'A játék háttérbe került',
+      hint: 'Kattints az ablakra a folytatáshoz',
+    };
+    return;
+  }
+
+  if (pauseManual) {
+    game.pause = {
+      active: true,
+      reason: 'manual',
+      title: 'Szünet',
+      detail: '',
+      hint: 'Options / Enter — folytatás',
+    };
+    return;
+  }
+
+  game.pause = null;
+}
+
 /**
  * End screen controls, checked once per frame so an edge cannot be consumed
  * twice:
@@ -253,6 +379,17 @@ function installWindowHandlers() {
   // simulation continues instead of jumping forward by minutes.
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) return;
+    lastFrameMs = -1;
+    accumulator = 0;
+  });
+
+  // Fókuszvesztéskor a gamepad-állapot befagy az utolsó értéken: a tank
+  // magától menne tovább. Csak eseményre reagálunk, sosem kérdezzük le
+  // induláskor a `document.hasFocus()`-t — egy fókusz nélkül indított
+  // (pl. automatizált) böngészőben az azonnali szünetet jelentene.
+  window.addEventListener('blur', () => { windowFocused = false; });
+  window.addEventListener('focus', () => {
+    windowFocused = true;
     lastFrameMs = -1;
     accumulator = 0;
   });

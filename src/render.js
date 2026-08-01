@@ -1751,7 +1751,59 @@ export function drawGame(ctxOrWrapper, game, t) {
     drawMatchEnd(ctx, game, time);
   }
 
+  // A szünet mindent takar: ha nem látszik egyértelműen, hogy a játék áll,
+  // a játékos azt hiszi, lefagyott.
+  if (game.pause && game.pause.active) drawPauseOverlay(ctx, game.pause, time);
+
   endFrame(ctx);
+}
+
+/**
+ * Teljes képernyős szünet-fátyol.
+ *
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {{reason:string, title:string, detail:string, hint:string}} info
+ * @param {number} t
+ */
+function drawPauseOverlay(ctx, info, t) {
+  ctx.save();
+  ctx.fillStyle = 'rgba(2, 6, 14, 0.82)';
+  ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  const cy = LOGICAL_H / 2;
+  const warn = info.reason === 'device';
+  const accent = warn ? '#fca5a5' : '#e2e8f0';
+
+  const boxW = 940;
+  const boxH = 260;
+  fillRoundRect(ctx, (LOGICAL_W - boxW) / 2, cy - boxH / 2, boxW, boxH, 22, 'rgba(11, 16, 25, 0.92)');
+  strokeRoundRect(ctx, (LOGICAL_W - boxW) / 2, cy - boxH / 2, boxW, boxH, 22,
+    warn ? 'rgba(248, 113, 113, 0.75)' : 'rgba(148, 163, 184, 0.45)', 2.5);
+
+  ctx.font = font(58, 900);
+  ctx.fillStyle = accent;
+  fitFont(ctx, info.title, boxW - 90, 58, 900);
+  ctx.fillText(info.title, LOGICAL_W / 2, cy - 62);
+
+  if (info.detail) {
+    ctx.font = font(24, 700);
+    ctx.fillStyle = 'rgba(226, 232, 240, 0.85)';
+    fitFont(ctx, info.detail, boxW - 90, 24, 700);
+    ctx.fillText(info.detail, LOGICAL_W / 2, cy - 4);
+  }
+
+  if (info.hint) {
+    const pulse = 0.6 + 0.4 * (0.5 + 0.5 * Math.sin(t * 3.2));
+    ctx.font = font(21, 700);
+    ctx.fillStyle = `rgba(148, 163, 184, ${pulse})`;
+    fitFont(ctx, info.hint, boxW - 90, 21, 700);
+    ctx.fillText(info.hint, LOGICAL_W / 2, cy + 58);
+  }
+
+  ctx.restore();
 }
 
 // ---------------------------------------------------------------------------
