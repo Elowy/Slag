@@ -206,6 +206,8 @@ function draw(nowMs) {
 function enterGame() {
   game = new Game(lobby.playersForGame(), lobby.settings);
   scene = 'game';
+  // Egy előző meccsről ott maradt kézi szünet ne fagyassza le az újat.
+  pauseManual = false;
 }
 
 /** Game → lobby. Everybody stays joined, so a rematch is two button presses. */

@@ -42,18 +42,42 @@ jobs:
           test -f src/main.js
           node --check src/main.js
 
-      # `enablement: true` magától bekapcsolja a Pages-t és Actions-buildre
-      # állítja, ha még nem volt beállítva — enélkül az első futás
-      # "Get Pages site failed / Not Found" hibával elszáll, és kézzel kell
-      # bekapcsolni a Settings → Pages alatt.
-      - uses: actions/configure-pages@v5
-        with:
-          enablement: true
+      # A Pages bekapcsolása admin jog: a beépített GITHUB_TOKEN nem tudja
+      # megtenni ("Resource not accessible by integration"), és az
+      # `enablement: true` sem segít. Ezért megnézzük, be van-e kapcsolva, és
+      # ha nincs, a futás NEM bukik el pirosra minden pushnál — kiírjuk a
+      # job összegzőjébe, pontosan mit kell egyszer beállítani.
+      - name: Be van-e kapcsolva a Pages?
+        id: pages_check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/${{ github.repository }}/pages" >/dev/null 2>&1; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## A GitHub Pages még nincs bekapcsolva"
+              echo ""
+              echo "A publikálás egyszeri beállítást igényel (a workflow ezt"
+              echo "jogosultság híján nem tudja elvégezni helyetted):"
+              echo ""
+              echo "**Settings → Pages → Build and deployment → Source: _GitHub Actions_**"
+              echo ""
+              echo "Ezután a következő push már magától publikál ide:"
+              echo "\`https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - if: steps.pages_check.outputs.enabled == 'true'
+        uses: actions/configure-pages@v5
 
       - name: Upload the site
+        if: steps.pages_check.outputs.enabled == 'true'
         uses: actions/upload-pages-artifact@v3
         with:
           path: .
 
       - id: deployment
+        if: steps.pages_check.outputs.enabled == 'true'
         uses: actions/deploy-pages@v4
