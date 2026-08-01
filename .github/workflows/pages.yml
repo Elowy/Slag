@@ -1,0 +1,53 @@
+# Publishes Slag to GitHub Pages.
+#
+# The game is plain static files (index.html + styles.css + src/), so there is
+# nothing to build — the repository root is uploaded as-is.
+#
+# Pages serves over HTTPS, which matters more than it looks: the Gamepad API is
+# a secure-context feature, so a plain http:// host silently hides every
+# controller. Any HTTPS static host works the same way; see README §9.
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+      - 'claude/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never run two deploys at once, but do let a queued one finish rather than
+# cancelling it — a cancelled deploy would leave the previous version live.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sanity-check the static entry points
+        run: |
+          test -f index.html
+          test -f styles.css
+          test -f src/main.js
+          node --check src/main.js
+
+      - uses: actions/configure-pages@v5
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -279,7 +279,56 @@ A játék semmilyen adatot nem küld el és nem tárol; teljes egészében a te 
 
 ---
 
-## 9. Parancsok röviden
+## 9. Feltöltés webszerverre (linkmegosztás)
+
+A játék **statikus fájlokból** áll — nincs build-lépés és nincs szerveroldali kód —,
+így bármelyik webtárhelyre feltölthető, és a linket megoszthatod.
+
+> **Fontos: HTTPS kell, különben nem lesz kontroller.**
+> A böngészők a Gamepad API-t csak *biztonságos kontextusban* engedik. Sima
+> `http://` címen a kontrollerek **egyáltalán nem jelennek meg** — a játék elindul,
+> de csak billentyűzettel játszható. A lobbi ilyenkor piros sávban ki is írja.
+> (`localhost` kivétel: ott `http://` is jó, ezért működik a `npm start`.)
+
+### Mit tölts fel
+
+Az egész repó gyökere kell: `index.html`, `styles.css` és a teljes `src/` mappa.
+A `tools/`, `dist/` és `.artifacts/` nem szükséges. Alkönyvtárba is teheted
+(pl. `pelda.hu/slag/`), mert minden hivatkozás relatív.
+
+Ha egyetlen fájlt szeretnél inkább:
+
+```bash
+npm run build      # → dist/slag.html
+```
+
+Ez mindent egyetlen HTML-be csomagol — feltöltöd, és kész.
+
+### GitHub Pages (a legegyszerűbb, ingyenes, HTTPS)
+
+A repóban van egy kész workflow (`.github/workflows/pages.yml`). Egyszeri
+beállítás: **Settings → Pages → Source: GitHub Actions**. Ezután minden push
+automatikusan publikál, és a link ez lesz:
+
+```
+https://<felhasználónév>.github.io/<repónév>/
+```
+
+### Saját szerver (nginx / Apache)
+
+Másold a fájlokat a webgyökérbe, és **kapcsold be a HTTPS-t** (a Let's Encrypt
+ingyenes). Semmilyen egyéb beállítás nem kell — nincs adatbázis, nincs backend.
+
+### Amit az online link *nem* csinál
+
+A megosztott linken mindenki a **saját gépén** nyitja meg a játékot, és ott
+játszik helyben, saját kontrollerekkel. **Nem** hálózati multiplayer: távoli
+barátok nem tudnak ugyanabba a meccsbe csatlakozni — ahhoz külön hálózati kód
+(netcode) és szerver kellene, ami nincs benne.
+
+---
+
+## 10. Parancsok röviden
 
 | Parancs | Mit csinál |
 |---|---|

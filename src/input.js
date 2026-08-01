@@ -259,6 +259,28 @@ function getPads() {
   }
 }
 
+/**
+ * Why the browser is not handing us any gamepads.
+ *
+ * The Gamepad API is a secure-context feature: served over plain `http://`
+ * from anything other than localhost, `navigator.getGamepads` is simply absent
+ * and every controller silently fails to appear. That is the single most
+ * likely way a working local build breaks once it is uploaded to a web server,
+ * so the lobby says it out loud instead of showing the generic
+ * "press a button on the controller" nudge forever.
+ *
+ * @returns {'ok'|'insecure'|'unsupported'}
+ */
+function gamepadAvailability() {
+  if (typeof navigator === 'undefined') return 'unsupported';
+  const getter = navigator.getGamepads || navigator.webkitGetGamepads;
+  if (typeof getter === 'function') return 'ok';
+  // No API at all. An insecure context is the actionable case: the page works,
+  // the fix is HTTPS (or localhost), and only the host can apply it.
+  if (typeof window !== 'undefined' && window.isSecureContext === false) return 'insecure';
+  return 'unsupported';
+}
+
 function getPadByIndex(index) {
   const pads = getPads();
   for (let i = 0; i < pads.length; i++) {
@@ -751,6 +773,16 @@ export const Input = {
       if (dev.kind === 'gamepad' && dev.connected) return true;
     }
     return false;
+  },
+
+  /**
+   * Whether the browser exposes the Gamepad API at all, and if not, why.
+   * See `gamepadAvailability()` — `'insecure'` means the page is served over
+   * plain http:// and only HTTPS (or localhost) will bring controllers back.
+   * @returns {'ok'|'insecure'|'unsupported'}
+   */
+  gamepadSupport() {
+    return gamepadAvailability();
   },
 
   /**

@@ -230,6 +230,16 @@ export class Lobby {
     return this._hasGamepads;
   }
 
+  /**
+   * `'ok'` | `'insecure'` | `'unsupported'` — why no controller shows up.
+   * `'insecure'` is the one the host can fix (serve over HTTPS); the lobby
+   * renders it as a warning instead of the usual "press a button" nudge.
+   * @returns {string}
+   */
+  get gamepadSupport() {
+    return typeof Input.gamepadSupport === 'function' ? Input.gamepadSupport() : 'ok';
+  }
+
   /** @returns {object} every Hungarian UI string the lobby needs. */
   get texts() {
     return TEXTS;

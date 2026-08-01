@@ -2127,7 +2127,23 @@ function drawLobbyFooter(ctx, lobby, canStart, t) {
     }
   }
 
-  if (noPads) {
+  // A blocked Gamepad API outranks the "press a button" nudge: no amount of
+  // button pressing will help, and the message has to name the actual fix.
+  const support = lobby.gamepadSupport;
+  if (support === 'insecure' || support === 'unsupported') {
+    const y = 818;
+    const insecure = support === 'insecure';
+    const w = 940;
+    fillRoundRect(ctx, LOGICAL_W / 2 - w / 2, y - 26, w, 52, 26, 'rgba(239, 68, 68, 0.16)');
+    strokeRoundRect(ctx, LOGICAL_W / 2 - w / 2, y - 26, w, 52, 26, 'rgba(248, 113, 113, 0.75)', 2);
+    ctx.font = font(19, 800);
+    ctx.fillStyle = '#fecaca';
+    const msg = insecure
+      ? 'A böngésző letiltotta a kontrollereket, mert az oldal nem HTTPS-en fut — addig billentyűzettel játszhattok.'
+      : 'Ez a böngésző nem támogatja a kontrollereket — billentyűzettel viszont játszhattok.';
+    fitFont(ctx, msg, w - 48, 19, 800);
+    ctx.fillText(msg, LOGICAL_W / 2, y);
+  } else if (noPads) {
     const y = 818;
     fillRoundRect(ctx, LOGICAL_W / 2 - 330, y - 22, 660, 44, 22, 'rgba(234, 179, 8, 0.14)');
     strokeRoundRect(ctx, LOGICAL_W / 2 - 330, y - 22, 660, 44, 22, 'rgba(234, 179, 8, 0.6)', 2);
