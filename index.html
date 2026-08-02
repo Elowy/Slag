@@ -22,16 +22,60 @@
     <div class="panel">
       <h1 class="brand">SLAG</h1>
       <p class="tagline">Négyfős tankcsata egy képernyőn</p>
-      <p class="cta">Kattints ide a kezdéshez</p>
+      <p class="cta">Kattints ide, vagy nyomj egy gombot a kontrolleren</p>
       <p class="note">
-        A böngésző csak az első kattintás után engedi a hangot,
-        és csak ezután ismeri fel a csatlakoztatott kontrollereket.
+        A böngésző csak az első gombnyomás után ismeri fel a csatlakoztatott
+        kontrollereket. A hanghoz kattintás vagy billentyű kell — ha
+        kontrollerrel indulsz, az első kattintásig néma marad a játék.
       </p>
       <ul class="keys">
         <li><b>R2</b> vagy <b>Kereszt</b> — csatlakozás a lobbiban</li>
         <li><b>Options</b> vagy <b>Enter</b> — a meccs indítása</li>
         <li><b>F</b> — teljes képernyő &nbsp;•&nbsp; <b>M</b> — némítás</li>
       </ul>
+    </div>
+  </div>
+
+  <!-- Online szoba. Szándékosan DOM és nem canvas: itt kell linket másolni és
+       szobakódot beírni, amihez valódi szövegmező és vágólap kell. A lobbi
+       fölött lebeg, a meccs alatt összecsukva. online-ui.js tölti meg. -->
+  <div id="online" class="online" hidden>
+    <button id="online-toggle" class="online-tab" type="button" aria-expanded="false">
+      Online szoba
+    </button>
+
+    <div id="online-body" class="online-body" hidden>
+      <p id="online-status" class="online-status">Játssz egy gépen, vagy hívj be másokat egy linkkel.</p>
+
+      <div id="online-idle" class="online-block">
+        <button id="online-host" class="online-btn primary" type="button">Szoba nyitása</button>
+        <div class="online-join">
+          <label for="online-code">Csatlakozás kóddal</label>
+          <div class="online-row">
+            <input id="online-code" type="text" inputmode="latin" autocomplete="off"
+                   spellcheck="false" maxlength="8" placeholder="ABC123">
+            <button id="online-join" class="online-btn" type="button">Csatlakozás</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="online-room" class="online-block" hidden>
+        <p class="online-label">Szobakód</p>
+        <p id="online-room-code" class="online-code">------</p>
+        <p class="online-label">Megosztható link</p>
+        <div class="online-row">
+          <input id="online-link" type="text" readonly>
+          <button id="online-copy" class="online-btn" type="button">Másol</button>
+        </div>
+        <p id="online-peers" class="online-note"></p>
+        <button id="online-leave" class="online-btn danger" type="button">Kilépés a szobából</button>
+      </div>
+
+      <p id="online-error" class="online-error" hidden></p>
+      <p class="online-note">
+        A játék bármelyik tárhelyről megy, de két böngészőt csak egy futó
+        kiszolgáló tud összekötni. Lásd a README „Online szoba” fejezetét.
+      </p>
     </div>
   </div>
 

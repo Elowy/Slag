@@ -29,6 +29,8 @@ import { Audio } from './audio.js';
 import { initRender, resize, drawGame, drawLobby } from './render.js';
 import { Lobby } from './lobby.js';
 import { Game } from './game.js';
+import { NetPlay } from './netplay.js';
+import { installOnlineUI, setOnlinePlaying } from './online-ui.js';
 
 /** Fixed simulation step: 120 Hz. */
 const STEP = 1 / 120;
@@ -70,6 +72,17 @@ let cursorHidden = false;
 let audioUnlocked = false;
 let errorShown = false;
 
+/**
+ * A kezdőfátyol állapota. Külön él a `audioUnlocked`-tól: a fátyol
+ * kontrollergombra is eltűnik, a hangot viszont csak igazi felhasználói
+ * gesztus (kattintás / billentyű) oldhatja fel.
+ */
+let overlayHidden = false;
+/** Vendégek voltunk-e az előző képkockán (a szobából kilépést ezzel vesszük észre). */
+let wasClient = false;
+/** @type {null|Function} az `installOverlay()` által beállított elrejtő. */
+let hideOverlayFn = null;
+
 // ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
@@ -98,6 +111,7 @@ function boot() {
 
   installWindowHandlers();
   installOverlay();
+  installOnlineUI();
 
   running = true;
   requestAnimationFrame(frame);
@@ -134,20 +148,40 @@ function tick(nowMs) {
 
   // --- input: exactly once per frame, BEFORE the simulation steps ----------
   Input.poll();
-  consumeInput();
+  dismissOverlayWithGamepad();
+  handlePauseInput();
+  updatePause();
 
-  // --- fixed timestep accumulator -----------------------------------------
-  accumulator += dt;
-  let steps = 0;
-  while (accumulator >= STEP && steps < MAX_STEPS) {
-    stepScene(STEP);
-    accumulator -= STEP;
-    steps += 1;
-  }
-  if (steps >= MAX_STEPS) {
-    // We are behind: drop the backlog instead of trying to catch up forever.
+  // Szünetben a szimuláció ÁLL, és az inputot sem nyeljük el: egy ravasz-él
+  // nem parkolhat be, hogy a folytatás pillanatában elsüljön.
+  if (isPaused()) {
     accumulator = 0;
+  } else {
+    consumeInput();
+
+    // --- fixed timestep accumulator ---------------------------------------
+    accumulator += dt;
+    let steps = 0;
+    while (accumulator >= STEP && steps < MAX_STEPS) {
+      stepScene(STEP);
+      accumulator -= STEP;
+      steps += 1;
+    }
+    if (steps >= MAX_STEPS) {
+      // We are behind: drop the backlog instead of trying to catch up forever.
+      accumulator = 0;
+    }
   }
+
+  // --- hálózat -------------------------------------------------------------
+  // Gazdaként a lobbi/meccs állapotát küldjük, vendégként a saját inputunkat.
+  NetPlay.tick(scene === 'lobby' ? lobby : null, scene === 'game' ? game : null);
+  setOnlinePlaying(scene === 'game' || NetPlay.showingGame);
+
+  // Szobából kilépve tiszta lappal folytatjuk itthon: amíg vendégek voltunk,
+  // a helyi lobbi állt, és a közben odaérkezett gombnyomások ott ragadtak.
+  if (wasClient && NetPlay.mode !== 'client') enterLobby();
+  wasClient = NetPlay.mode === 'client';
 
   // --- once-per-frame work -------------------------------------------------
   handleEndScreenInput();
@@ -161,6 +195,12 @@ function tick(nowMs) {
  * button press.
  */
 function consumeInput() {
+  // Vendégként a saját lobbink NEM fut. Enélkül ugyanaz a gombnyomás, amit a
+  // gazdának küldünk, itthon is beültetne minket egy helyi lobbiba, és egy
+  // Optionsszal akár egy párhuzamos, senki más által nem látott meccset is
+  // elindítana.
+  if (NetPlay.mode === 'client') return;
+
   if (scene === 'lobby' && lobby) {
     lobby.consumeInput();
     if (lobby.started) enterGame();
@@ -175,6 +215,9 @@ function consumeInput() {
  * @param {number} dt seconds
  */
 function stepScene(dt) {
+  // Vendégként nincs saját szimuláció: a gazdáé az egyetlen igazság.
+  if (NetPlay.mode === 'client') return;
+
   if (scene === 'lobby') {
     lobby.update(dt);
     return;
@@ -185,6 +228,18 @@ function stepScene(dt) {
 /** @param {number} nowMs */
 function draw(nowMs) {
   const t = nowMs / 1000;
+
+  // Vendégként nem a saját világunkat rajzoljuk, hanem a gazdáét: nála fut a
+  // szimuláció, mi csak a tőle kapott pillanatképet mutatjuk.
+  if (NetPlay.mode === 'client') {
+    if (NetPlay.showingGame) drawGame(ctx, NetPlay.gameView.sample(nowMs), t);
+    else {
+      NetPlay.lobbyView.time = t;
+      drawLobby(ctx, NetPlay.lobbyView, t);
+    }
+    return;
+  }
+
   if (scene === 'lobby') drawLobby(ctx, lobby, t);
   else if (game) drawGame(ctx, game, t);
 }
@@ -197,6 +252,8 @@ function draw(nowMs) {
 function enterGame() {
   game = new Game(lobby.playersForGame(), lobby.settings);
   scene = 'game';
+  // Egy előző meccsről ott maradt kézi szünet ne fagyassza le az újat.
+  pauseManual = false;
 }
 
 /** Game → lobby. Everybody stays joined, so a rematch is two button presses. */
@@ -204,6 +261,140 @@ function enterLobby() {
   game = null;
   scene = 'lobby';
   lobby.reset();
+}
+
+// ---------------------------------------------------------------------------
+// Pause
+// ---------------------------------------------------------------------------
+
+/**
+ * A meccs három okból állhat meg. Mind a három ugyanazt a bajt kerüli el:
+ * a képernyőn zajlik a játék, miközben valaki nem tud beleszólni.
+ *
+ *   'device' — egy EMBER kontrollere lecsatlakozott (a DualSense magától
+ *              elalszik pár perc tétlenség után). A tankja mozdulatlan
+ *              célpont lenne. Újracsatlakozáskor magától folytatódik.
+ *   'focus'  — az ablak elvesztette a fókuszt. A gamepad-állapot ilyenkor
+ *              befagy az utolsó értéken, vagyis a tank tovább menne előre.
+ *   'manual' — valaki Optionst nyomott, mert szünetet akart.
+ */
+let pauseManual = false;
+/** Csak `blur` eseményre vált false-ra; induláskor sosem feltételezünk vakot. */
+let windowFocused = true;
+
+/** @returns {boolean} áll-e éppen a szimuláció. */
+function isPaused() {
+  return !!(game && game.pause && game.pause.active);
+}
+
+/** @returns {Array<string>} azon EMBERI játékosok nevei, akiknek elment az eszköze. */
+function missingHumanPlayers() {
+  if (!game) return [];
+  const out = [];
+  const players = game.players || [];
+  for (let i = 0; i < players.length; i++) {
+    const p = players[i];
+    if (p.isBot) continue;
+    if (!Input.isConnected(p.deviceId)) out.push(p.name);
+  }
+  return out;
+}
+
+/**
+ * Options / Enter a meccs alatt.
+ *
+ * Normál esetben szünetet kapcsol. Ha viszont épp azért állunk, mert valakinek
+ * elment a kontrollere, akkor kiutat ad a lobbiba: a böngésző nem garantálja,
+ * hogy egy újracsatlakozó pad ugyanazt az indexet (és így ugyanazt az
+ * eszköz-azonosítót) kapja vissza, és e nélkül a meccs örökre bent ragadna.
+ */
+function handlePauseInput() {
+  if (scene !== 'game' || !game) return;
+  const st = game.state;
+  if (st !== 'playing' && st !== 'countdown') return;
+
+  const stranded = missingHumanPlayers().length > 0;
+
+  // Kiszorult állapotban BÁRMELYIK élő eszköz kivezethet — nem csak a
+  // meccsben ülő játékosoké. Egy ember + botok meccsben ugyanis pont annak
+  // az egy embernek ment el a kontrollere, akitől a kilépést várnánk; a
+  // billentyűzet viszont mindig ott van, és az Enter kivisz a lobbiba.
+  if (stranded) {
+    const devices = Input.listDevices();
+    for (let i = 0; i < devices.length; i++) {
+      const dev = devices[i];
+      if (!dev.connected) continue;
+      if (Input.getState(dev.id).startPressed) {
+        enterLobby();
+        return;
+      }
+    }
+    return;
+  }
+
+  if (st !== 'playing') return;
+
+  const players = game.players || [];
+  for (let i = 0; i < players.length; i++) {
+    const p = players[i];
+    if (p.isBot) continue;
+    if (!Input.isConnected(p.deviceId)) continue;
+    if (!Input.getState(p.deviceId).startPressed) continue;
+    pauseManual = !pauseManual;
+    return;
+  }
+}
+
+/** Kiszámolja az aktuális szünet-állapotot és ráteszi a `game`-re. */
+function updatePause() {
+  if (scene !== 'game' || !game) {
+    pauseManual = false;
+    return;
+  }
+  // Az eredményhirdetést nem szüneteltetjük: ott úgyis mindenki gombra vár.
+  const st = game.state;
+  if (st !== 'playing' && st !== 'countdown') {
+    game.pause = null;
+    pauseManual = false;
+    return;
+  }
+
+  const lost = missingHumanPlayers();
+  if (lost.length) {
+    const who = lost.length === 1 ? lost[0] : lost.join(', ');
+    game.pause = {
+      active: true,
+      reason: 'device',
+      title: 'Kontroller lecsatlakozott',
+      detail: `${who} — a meccs addig áll`,
+      hint: 'Csatlakoztasd újra — magától folytatódik   ·   Options / Enter — vissza a lobbiba',
+    };
+    return;
+  }
+
+  if (!windowFocused) {
+    game.pause = {
+      active: true,
+      reason: 'focus',
+      title: 'Szünet',
+      detail: 'A játék háttérbe került',
+      hint: 'Kattints az ablakra a folytatáshoz',
+    };
+    return;
+  }
+
+  if (pauseManual) {
+    game.pause = {
+      active: true,
+      reason: 'manual',
+      title: 'Szünet',
+      detail: '',
+      hint: 'Options / Enter — folytatás',
+    };
+    return;
+  }
+
+  game.pause = null;
 }
 
 /**
@@ -253,6 +444,17 @@ function installWindowHandlers() {
   // simulation continues instead of jumping forward by minutes.
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) return;
+    lastFrameMs = -1;
+    accumulator = 0;
+  });
+
+  // Fókuszvesztéskor a gamepad-állapot befagy az utolsó értéken: a tank
+  // magától menne tovább. Csak eseményre reagálunk, sosem kérdezzük le
+  // induláskor a `document.hasFocus()`-t — egy fókusz nélkül indított
+  // (pl. automatizált) böngészőben az azonnali szünetet jelentene.
+  window.addEventListener('blur', () => { windowFocused = false; });
+  window.addEventListener('focus', () => {
+    windowFocused = true;
     lastFrameMs = -1;
     accumulator = 0;
   });
@@ -345,6 +547,22 @@ function installOverlay() {
 
     window.removeEventListener('pointerdown', dismiss);
     window.removeEventListener('keydown', dismiss);
+    hideOverlay();
+  };
+
+  /**
+   * Elrejti a fátylat a hang feloldása NÉLKÜL.
+   *
+   * Kontrollergombbal is tovább kell tudni lépni: aki a kanapén ül egy
+   * DualSense-szel, annak eddig zsákutca volt a kezdőképernyő — a játék mögötte
+   * már látta a padet, de a fátyol csak kattintásra és billentyűre tűnt el.
+   * A hang viszont NEM oldható fel gamepad-gombbal (a böngésző nem tekinti
+   * felhasználói gesztusnak), ezért a `dismiss` figyelők a helyükön maradnak:
+   * az első kattintás vagy billentyű később feloldja a hangot.
+   */
+  const hideOverlay = () => {
+    if (overlayHidden) return;
+    overlayHidden = true;
 
     if (!overlay) return;
     overlay.classList.add('is-gone');
@@ -352,8 +570,31 @@ function installOverlay() {
     setTimeout(() => { overlay.hidden = true; }, OVERLAY_FADE_MS);
   };
 
+  hideOverlayFn = hideOverlay;
+
   window.addEventListener('pointerdown', dismiss);
   window.addEventListener('keydown', dismiss);
+}
+
+/**
+ * A kezdőfátyol eltüntetése kontrollergombra.
+ *
+ * A frame-hurokból hívjuk, közvetlenül a poll után. A gombnyomás CSAK a
+ * fátyolé: `consumeEdges()` nélkül ugyanaz az R2 egyből be is ültetné a
+ * játékost egy olyan lobbiba, amit még meg sem látott.
+ */
+function dismissOverlayWithGamepad() {
+  if (overlayHidden || !hideOverlayFn) return;
+
+  const devices = Input.listDevices();
+  for (let i = 0; i < devices.length; i++) {
+    const dev = devices[i];
+    if (dev.kind !== 'gamepad' || !dev.connected) continue;
+    if (!Input.getState(dev.id).anyPressed) continue;
+    hideOverlayFn();
+    Input.consumeEdges();
+    return;
+  }
 }
 
 // ---------------------------------------------------------------------------

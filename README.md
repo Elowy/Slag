@@ -103,6 +103,19 @@ Minden padot külön-külön be kell „ébreszteni” egy gombnyomással.
 | **Jobb stick** | Mozgás. A stick iránya a haladás iránya; a tank arra fordul és elindul. Amennyire kinyomod, olyan gyorsan megy. |
 | **R2** (analóg) | Lövés |
 | **Bal stick** | *Opcionális* toronycélzás. Alapból a cső előre néz. Ha megmozdítod a bal sticket, a torony külön irányba fordul; ha 3 másodpercig elengeded, visszaáll előrenézésbe. |
+| **Options** | Szünet be / ki (a visszaszámlálás alatt még nem él) |
+
+### Szünet
+
+A meccs magától megáll, ha valami elvenné tőletek az irányítást:
+
+- **Lecsatlakozik egy kontroller** (a DualSense pár perc tétlenség után elalszik).
+  A tankod különben mozdulatlan célpont lenne. Ha visszacsatlakozik, a meccs
+  magától folytatódik; ha nem jönne vissza, az **Options** visszavisz a lobbiba.
+- **Elveszti a fókuszt az ablak** (átkattintasz máshova). A böngésző ilyenkor
+  befagyasztja a kontroller állapotát az utolsó értéken, vagyis a tankod
+  magától menne tovább. Kattints vissza az ablakra, és folytatódik.
+- **Valaki Optionst nyom**, mert szünetet kér.
 
 ### Kontroller — lobbi
 
@@ -322,9 +335,14 @@ Ez mindent egyetlen HTML-be csomagol — feltöltöd, és kész.
 
 ### GitHub Pages (a legegyszerűbb, ingyenes, HTTPS)
 
-A repóban van egy kész workflow (`.github/workflows/pages.yml`). Egyszeri
-beállítás: **Settings → Pages → Source: GitHub Actions**. Ezután minden push
-automatikusan publikál, és a link ez lesz:
+A repóban van egy kész workflow (`.github/workflows/pages.yml`). Egyetlen
+egyszeri kattintás kell hozzá — ezt a workflow jogosultság híján nem tudja
+elvégezni helyetted:
+
+**Settings → Pages → Build and deployment → Source: _GitHub Actions_**
+
+(Amíg ez nincs beállítva, a workflow nem hasal el pirosra: a futás összegzőjében
+kiírja, mit kell beállítani.) Utána minden push publikál, és a link ez lesz:
 
 ```
 https://<felhasználónév>.github.io/<repónév>/
@@ -335,16 +353,121 @@ https://<felhasználónév>.github.io/<repónév>/
 Másold a fájlokat a webgyökérbe, és **kapcsold be a HTTPS-t** (a Let's Encrypt
 ingyenes). Semmilyen egyéb beállítás nem kell — nincs adatbázis, nincs backend.
 
-### Amit az online link *nem* csinál
+---
 
-A megosztott linken mindenki a **saját gépén** nyitja meg a játékot, és ott
-játszik helyben, saját kontrollerekkel. **Nem** hálózati multiplayer: távoli
-barátok nem tudnak ugyanabba a meccsbe csatlakozni — ahhoz külön hálózati kód
-(netcode) és szerver kellene, ami nincs benne.
+## 10. Online szoba (távoli barátok)
+
+Ha nem egy kanapén ültök: a játékban nyithatsz **szobát**, és a kapott linkkel
+mások távolról is beülhetnek ugyanabba a meccsbe.
+
+### Mire van szükség
+
+A játék statikus fájljait bármelyik tárhely kiszolgálja — de **két böngészőt
+egyetlen tárhely sem tud összekötni**. Ehhez kell egy futó folyamat, ami a
+csomagokat továbbadja. Ez a `tools/relay-server.mjs`: egy kicsi, függőség
+nélküli Node-kiszolgáló.
+
+```bash
+node tools/relay-server.mjs --port 8090
+```
+
+Kétféleképp állíthatod be, hol keresse a játék:
+
+```html
+<!-- 1. Az index.html-be, a modul betöltése ELŐTT: -->
+<script>window.SLAG_RELAY = 'https://relay.pelda.hu';</script>
+```
+
+```
+2. Vagy a linkben, beállítás nélkül:
+   https://pelda.hu/slag/?relay=https://relay.pelda.hu
+```
+
+Ha a játékot és a relayt **ugyanaz a gép** szolgálja ki, semmit nem kell
+beállítani: alapból a saját címét használja.
+
+> **HTTPS-oldal csak HTTPS-relayt érhet el.** Ha a játék `https://`-en van, a
+> relaynek is annak kell lennie, különben a böngésző letiltja a kapcsolatot.
+
+### Megosztott tárhelyen (cPanel, „Setup Node.js App”)
+
+**`npm install` NEM kell** — a projektnek nincs egyetlen függősége sem. Ha
+mégis lefuttatod, a cPanel `activate` szkriptje `--prefix`-szel a virtuális
+környezetre irányítja az npm-et, és ezt a hibát kapod:
+
+```
+npm error path /home/<user>/nodevenv/<domain>/24/lib/package.json
+npm error enoent Could not read package.json
+```
+
+Ez nem a te hibád és nem is baj: egyszerűen hagyd ki ezt a lépést.
+
+**1. A játék (statikus fájlok).** Töltsd fel a webgyökérbe (a domain
+document rootjába) ezeket: `index.html`, `styles.css` és a teljes `src/`
+mappa. Ennyitől a játék már megy — egy gépen, helyben.
+
+**2. A relay (csak az online szobákhoz).** A `tools/` mappát és az `app.js`-t
+tedd a webgyökéren **kívülre**, pl. `~/slag-relay/`-be, hogy ne lehessen
+böngészőből letölteni. Utána a cPanelben:
+
+| Mező | Érték |
+|---|---|
+| Application root | `slag-relay` |
+| Application URL | `tank.luiz-tech.hu/relay` |
+| Application startup file | `app.js` |
+| Node.js version | 18 vagy újabb |
+
+A portot a Passenger adja, a relay magától felveszi. Az sem gond, hogy nem a
+gyökéren ül: az útvonal-előtagot (`/relay`) a kiszolgáló levágja.
+
+**3. Mondd meg a játéknak, hol a relay.** Az `index.html`-be, a modul
+betöltése **elé**:
+
+```html
+<script>window.SLAG_RELAY = 'https://tank.luiz-tech.hu/relay';</script>
+```
+
+Ellenőrzés: a `https://tank.luiz-tech.hu/relay/api/health` címnek
+`{"ok":true,"rooms":0}`-t kell adnia. Ha ezt látod, kész vagy.
+
+> **Ha a szoba létrejön, de semmi nem frissül:** a tárhely webkiszolgálója
+> puffereli a folyamatos választ. A relay ez ellen küldi az
+> `X-Accel-Buffering: no` fejlécet, de nem minden beállítás veszi figyelembe.
+> Ilyenkor a tárhely támogatásától kell kérni, hogy a `/relay` útvonalon
+> kapcsolják ki a pufferelést (proxy buffering).
+
+### Hogyan játszotok
+
+1. Egyvalaki megnyomja az **Online szoba → Szoba nyitása** gombot.
+2. Elküldi a megjelenő **linket** (vagy a 6 karakteres kódot).
+3. A többiek megnyitják a linket — magától csatlakoznak.
+4. Innentől minden ugyanaz, mint egy gépen: **R2 / Space** a beüléshez,
+   **Kereszt / Enter** a készhez, **Options / Enter** az indításhoz. A távoli
+   játékos ugyanúgy elfoglal egy helyet a lobbiban, mint aki melletted ül.
+5. Vegyíthető: nálad ülhet két ember egy-egy kontrollerrel, és jöhet még
+   kettő távolról. Négy hely van összesen, gépi ellenfelekkel kiegészíthető.
+
+### Hogyan működik, és mi az ára
+
+A **szobát nyitó gépen fut a meccs** — ő az igazság forrása. A távoli
+játékosok elküldik, mit nyomnak, és visszakapják a kész képet. Így a két gép
+állapota soha nem tud szétcsúszni.
+
+Cserébe **a távoli játékos a saját mozgását is késleltetve látja**: annyival,
+amennyi idő alatt a csomag megjárja a relayt oda-vissza. Egy közeli
+kiszolgálóval ez alig érezhető, egy másik kontinensen lévővel viszont zavaró.
+Tedd a relayt olyan helyre, ami mindkettőtökhöz közel van.
+
+Amit a mostani változat **nem** tud: nincs késleltetés-kompenzáció (a távoli
+játékos nem "előre jelzi" a saját mozgását), és ha a szoba gazdája kilép, a
+meccs véget ér — nincs gazdaátadás.
+
+> **A böngészőfül maradjon előtérben.** A böngészők lelassítják a háttérben
+> lévő lapokat; ilyenkor a távoli játékos irányítása akadozni fog.
 
 ---
 
-## 10. Parancsok röviden
+## 11. Parancsok röviden
 
 | Parancs | Mit csinál |
 |---|---|
@@ -352,5 +475,6 @@ barátok nem tudnak ugyanabba a meccsbe csatlakozni — ahhoz külön hálózati
 | `npm start -- --port 3000` | Ugyanaz, más porton |
 | `npm run build` | Elkészíti az egyfájlos `dist/slag.html`-t |
 | `npm run smoke` | Automata önteszt: lejátszik egy kört fejnélküli böngészőben, és képernyőképeket ment a `.artifacts/` mappába |
+| `npm run relay` | Elindítja az online szobák kiszolgálóját a 8090-es porton |
 
 Jó csatát!

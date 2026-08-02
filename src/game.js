@@ -85,6 +85,14 @@ export class Game {
     /** @type {null|object} the winning PlayerSlot, set when the match ends. */
     this.winner = null;
 
+    /**
+     * Szünet-leíró, amit a `main.js` állít be és a renderer olvas.
+     * `null`, amikor a meccs fut.
+     * @type {null|{active:boolean, reason:string, title:string,
+     *              detail:string, hint:string}}
+     */
+    this.pause = null;
+
     /** Id of the arena used by the previous match, so 'random' can vary. */
     this._lastArenaId = null;
 

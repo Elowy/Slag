@@ -8,6 +8,7 @@
     "start": "node tools/serve.mjs",
     "build": "node tools/build-single.mjs",
     "smoke": "node tools/smoke-test.mjs",
+    "relay": "node tools/relay-server.mjs --port 8090",
     "lint": "eslint src tools"
   }
 }
