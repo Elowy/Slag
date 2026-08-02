@@ -20,7 +20,7 @@
  */
 
 import { CONFIG } from './config.js';
-import { pathBlocked } from './arena.js';
+import { pathBlocked, pathClearance } from './arena.js';
 import { clamp, rand, angleDiff, dist } from './util.js';
 
 const TAU = Math.PI * 2;
@@ -49,7 +49,9 @@ const PICKUP_RANGE = 320;
 /**
  * Nehézségi szintek.
  *
- * `aimError`  — radiánban mért célzási hiba (lassan sodródik, nem lépésenként random)
+ * `aimError`  — radiánban mért célzási hiba. LÖVÉSENKÉNT sorsolódik újra és
+ *               a lövésig rögzített marad, különben a torony rááll a hibás
+ *               szögre, a hiba közben elsodródik, és a bot kicélozza magát.
  * `reaction`  — másodperc, amíg új cél megjelenése után egyáltalán tüzelni kezd
  * `lead`      — mennyire vezeti meg a mozgó célt (0 = egyáltalán nem, 1 = pontosan)
  * `fireArc`   — ekkora szögeltérésen belül húzza meg a ravaszt
@@ -64,17 +66,17 @@ const PICKUP_RANGE = 320;
 export const BOT_LEVELS = Object.freeze([
   Object.freeze({
     id: 'easy', name: 'Könnyű',
-    aimError: 0.32, reaction: 0.55, lead: 0.25, fireArc: 0.34,
+    aimError: 0.55, reaction: 0.55, lead: 0.25, fireArc: 0.34,
     fireGap: 0.85, throttle: 0.65, dodge: 0.10, range: 380,
   }),
   Object.freeze({
     id: 'normal', name: 'Közepes',
-    aimError: 0.16, reaction: 0.30, lead: 0.70, fireArc: 0.22,
+    aimError: 0.30, reaction: 0.30, lead: 0.70, fireArc: 0.22,
     fireGap: 0.50, throttle: 0.85, dodge: 0.45, range: 325,
   }),
   Object.freeze({
     id: 'hard', name: 'Nehéz',
-    aimError: 0.045, reaction: 0.12, lead: 1.0, fireArc: 0.16,
+    aimError: 0.145, reaction: 0.12, lead: 1.0, fireArc: 0.16,
     fireGap: 0, throttle: 1.0, dodge: 0.9, range: 290,
   }),
 ]);
@@ -126,6 +128,8 @@ export class BotBrain {
     this._targetIndex = -1;
     this._aimAngle = 0;
     this._aimErr = 0;
+    /** Kér-e új célzási hibát (lövés után és célváltáskor igen). */
+    this._newAim = true;
     this._desired = rand(0, TAU);
     this._throttle = 0;
     this._canFire = false;
@@ -182,13 +186,22 @@ export class BotBrain {
     else this._stuck = 0;
 
     if (this._stuck > STUCK_TIME) {
+      // A kiszabadulás iránya NEM lehet vaktában választott: a régi változat
+      // random szöget húzott, ami ugyanolyan eséllyel mutatott vissza a falba,
+      // és a bot ott ragadt. A `_decide` a következő tickben a legszabadabb
+      // irányt adja; addig egyszerűen hátramenetben tolatunk el a faltól.
       this._unstuck = rand(0.45, 0.95);
-      this._wander = rand(0, TAU);
+      this._wander = Math.atan2(-Math.sin(tank.angle), -Math.cos(tank.angle));
       this._stuck = 0;
     }
     if (this._unstuck > 0) this._unstuck -= dt;
 
-    const heading = this._unstuck > 0 ? this._wander : this._desired;
+    // Beszorulás közben is kerüljük a falat — enélkül a kiszabadító irány
+    // maga is nekivihette a tankot egy másik falnak.
+    const walls = (world.arena && world.arena.walls) || [];
+    const heading = this._unstuck > 0
+      ? this._avoidWalls(tank, this._wander, walls)
+      : this._desired;
     out.moveX = Math.cos(heading);
     out.moveY = Math.sin(heading);
     out.moveMag = this._unstuck > 0 ? this.level.throttle : this._throttle;
@@ -205,6 +218,8 @@ export class BotBrain {
       out.fireHeld = true;
       out.fire = 1;
       this._shotGap = this.level.fireGap;
+      // A következő lövés új hibát kap — nem "belövi magát" sorozatban.
+      this._newAim = true;
     }
 
     return out;
@@ -231,6 +246,7 @@ export class BotBrain {
     if (target.index !== this._targetIndex) {
       this._targetIndex = target.index;
       this._reaction = level.reaction;
+      this._newAim = true;
     }
 
     // ---- célzás: becsapódási pont megvezetéssel -----------------------------
@@ -240,9 +256,17 @@ export class BotBrain {
     const px = target.x + (target.vx || 0) * flight;
     const py = target.y + (target.vy || 0) * flight;
 
-    // A hiba lassan sodródik a cél felé, nem ugrál lépésenként — így a bot
-    // "bizonytalanul céloz", nem pedig idegesen remeg.
-    this._aimErr += (rand(-level.aimError, level.aimError) - this._aimErr) * 0.4;
+    // A célzási hiba LÖVÉSENKÉNT rögzített, nem folyamatosan sodródó.
+    //
+    // Sodródó hibával a bot sokkal pontosabb volt, mint a beállítás sugallta:
+    // a torony ráállt a hibás szögre, a `fireArc` addig nem engedett tüzelni,
+    // és mire összeért a kettő, a hiba már elsodródott a valódi irány felé —
+    // vagyis a bot kicélozta magát. Rögzített hibával a cső tényleg a mellé
+    // mutató irányba áll be, és oda is lő.
+    if (this._newAim) {
+      this._aimErr = rand(-level.aimError, level.aimError);
+      this._newAim = false;
+    }
     this._aimAngle = Math.atan2(py - tank.y, px - tank.x) + this._aimErr;
 
     // ---- tüzelési engedély --------------------------------------------------
@@ -317,13 +341,38 @@ export class BotBrain {
   }
 
   /**
-   * A kívánt irányból kiindulva megkeresi a legközelebbi JÁRHATÓ irányt.
-   * Három sugárral próbál (közép + a hullszélesség két oldala), így nem
-   * próbál meg olyan résbe behajtani, amibe nem fér be.
+   * Egy irány szabadsága 0..1 között, a hull szélességét is figyelembe véve.
+   * Három párhuzamos sugár (közép + a két oldal), a legrosszabb számít.
+   * @private
+   */
+  _clearance(tank, angle, walls) {
+    const r = tank.radius;
+    const cx = Math.cos(angle);
+    const cy = Math.sin(angle);
+    const nx = -cy * r;
+    const ny = cx * r;
+    const ex = tank.x + cx * PROBE_DIST;
+    const ey = tank.y + cy * PROBE_DIST;
+
+    return Math.min(
+      pathClearance(tank.x, tank.y, ex, ey, walls),
+      pathClearance(tank.x + nx, tank.y + ny, ex + nx, ey + ny, walls),
+      pathClearance(tank.x - nx, tank.y - ny, ex - nx, ey - ny, walls),
+    );
+  }
+
+  /**
+   * A kívánt irányból kiindulva megkeresi a legjárhatóbb irányt.
+   *
+   * FONTOS: nem igen/nem "torlaszolt" alapon dönt, hanem TÁVOLSÁGGAL. A
+   * korábbi változat minden torlaszolt irányt egyformán rossznak (-1000)
+   * tekintett, így egy sarokban — ahol minden irány torlaszolt — a legkisebb
+   * eltérésű, vagyis az egyenesen előre mutató irányt választotta: a bot
+   * nekihajtott a falnak és ott maradt. A szabad hányad mérésével mindig a
+   * legtöbb helyet adó irány nyer.
    * @private
    */
   _avoidWalls(tank, want, walls) {
-    const r = tank.radius;
     let best = want;
     let bestScore = -Infinity;
 
@@ -331,22 +380,24 @@ export class BotBrain {
       // 0, +1, -1, +2, -2 ... lépésekben távolodunk a kívánt iránytól.
       const step = Math.ceil(i / 2) * ((i % 2) ? 1 : -1);
       const a = want + step * PROBE_STEP;
-      const cx = Math.cos(a);
-      const cy = Math.sin(a);
-      const nx = -cy * r;
-      const ny = cx * r;
+      const clear = this._clearance(tank, a, walls);
 
-      const ex = tank.x + cx * PROBE_DIST;
-      const ey = tank.y + cy * PROBE_DIST;
-
-      const blocked = pathBlocked(tank.x, tank.y, ex, ey, walls)
-        || pathBlocked(tank.x + nx, tank.y + ny, ex + nx, ey + ny, walls)
-        || pathBlocked(tank.x - nx, tank.y - ny, ex - nx, ey - ny, walls);
-
-      const score = (blocked ? -1000 : 0) - Math.abs(step) * 30;
+      // A szabad hányad dominál, az iránytartás csak finomhangol.
+      const score = clear * 100 - Math.abs(step) * 6;
       if (score > bestScore) { bestScore = score; best = a; }
-      // Egyenes és szabad: ennél jobb nem lesz.
-      if (!blocked && step === 0) break;
+      // Teljesen szabad és egyenes előre: ennél jobb nem lesz.
+      if (clear >= 1 && step === 0) break;
+    }
+
+    // Minden irány erősen zárt (beszorult sarok): teljes körben keresünk
+    // kiutat, akár hátrafelé is.
+    if (bestScore < 25) {
+      for (let i = 0; i < 16; i++) {
+        const a = want + Math.PI + (i - 8) * (Math.PI / 8);
+        const clear = this._clearance(tank, a, walls);
+        const score = clear * 100 - Math.abs(i - 8) * 2;
+        if (score > bestScore) { bestScore = score; best = a; }
+      }
     }
     return best;
   }

@@ -33,7 +33,7 @@
  */
 
 import { CONFIG, PALETTE } from './config.js';
-import { clamp, hexToRgba } from './util.js';
+import { clamp, damp, hexToRgba } from './util.js';
 import { ARENAS } from './arena.js';
 
 // ---------------------------------------------------------------------------
@@ -1292,10 +1292,17 @@ function safeScoreboard(game) {
   }
 }
 
-function drawHud(ctx, game, tanks) {
+function drawHud(ctx, game, tanks, time) {
   const board = safeScoreboard(game);
   const settings = (game.world && game.world.settings) || {};
   const target = settings.pointsToWin ?? CONFIG.match.pointsToWin;
+
+  // Idő a simításhoz. Az első kép és egy visszaugró óra (jelenetváltás) is
+  // 0 dt-t ad, ilyenkor a kártya azonnal a végállapotba ugrik.
+  const now = Number.isFinite(time) ? time : 0;
+  let dt = cardFadeTime < 0 ? 0 : now - cardFadeTime;
+  if (!(dt > 0) || dt > 0.25) dt = 0;
+  cardFadeTime = now;
 
   // Player cards.
   for (let i = 0; i < tanks.length; i++) {
@@ -1307,7 +1314,10 @@ function drawHud(ctx, game, tanks) {
     const name = (row && row.name) || playerLabel(idx);
     // A card sitting on top of a tank would hide the one thing the player is
     // actually looking at, so it gets out of the way while that lasts.
-    drawPlayerCard(ctx, slot, tank, name, target, cardOpacity(slot, tanks));
+    const clear = cardFade(idx, cardCovered(slot, tanks), dt);
+    drawPlayerCard(ctx, slot, tank, name, target,
+      CARD_MIN_ALPHA + (1 - CARD_MIN_ALPHA) * clear,
+      CARD_TEXT_MIN_ALPHA + (1 - CARD_TEXT_MIN_ALPHA) * clear);
   }
 
   // Target score + current leader, centred at the top.
@@ -1335,30 +1345,57 @@ function drawHud(ctx, game, tanks) {
 }
 
 /**
- * Opacity of the card CHROME (background, border, colour strip, progress bar)
- * while a living tank drives underneath it. The text is never dimmed: at 0.3
- * even the 46 px score dropped to a 2.65:1 contrast ratio — far below the
- * WCAG AA 4.5:1 minimum — so the scoreboard became unreadable exactly when a
- * tank was fighting in that corner.
+ * Mennyire halványul el a kártya, amíg élő tank van alatta.
+ *
+ * A HÁTTÉR (panel, keret, színcsík, haladássáv) majdnem eltűnik: ez az, ami
+ * ténylegesen kitakarja a tankot. A TARTALOM (név, pontszám, K/D) csak félig
+ * halványul, mert olvashatónak kell maradnia: minden ilyen felirat sötét
+ * kontúrral rajzolódik (`outlinedText`), ami a világos pályán is megtartja a
+ * kontrasztot — de nullára vinni a pontszámot pont akkor tüntetné el, amikor
+ * abban a sarokban folyik a harc.
  */
-const CARD_MIN_ALPHA = 0.3;
+const CARD_MIN_ALPHA = 0.1;
+const CARD_TEXT_MIN_ALPHA = 0.5;
+
+/** Elhalványulás sebessége. ~0,15 mp alatt áll be, így nem villog. */
+const CARD_FADE_LAMBDA = 16;
+
+/** Kártyánként simított "szabad-e" érték (1 = szabad, 0 = tank van alatta). */
+const cardClear = [1, 1, 1, 1];
+/** Az előző kép ideje másodpercben, a simítás dt-jéhez. */
+let cardFadeTime = -1;
 
 /**
+ * Van-e élő tank a kártya alatt.
  * @param {{x:number, y:number}} slot card position
  * @param {Array} tanks every tank of the match
- * @returns {number} 1 when the card is clear, `CARD_MIN_ALPHA` when covered
+ * @returns {boolean}
  */
-function cardOpacity(slot, tanks) {
+function cardCovered(slot, tanks) {
   for (let i = 0; i < tanks.length; i++) {
     const tank = tanks[i];
     if (!tank || tank.alive === false) continue;
     const r = (tank.radius ?? CONFIG.tank.radius) + 10;
     if (tank.x > slot.x - r && tank.x < slot.x + CARD_W + r
       && tank.y > slot.y - r && tank.y < slot.y + CARD_H + r) {
-      return CARD_MIN_ALPHA;
+      return true;
     }
   }
-  return 1;
+  return false;
+}
+
+/**
+ * Frissíti és visszaadja a kártya simított "szabad" értékét (0..1).
+ * @param {number} index kártya sorszáma (0..3)
+ * @param {boolean} covered van-e alatta tank
+ * @param {number} dt eltelt idő másodpercben
+ * @returns {number}
+ */
+function cardFade(index, covered, dt) {
+  const i = clamp(index, 0, cardClear.length - 1) | 0;
+  const target = covered ? 0 : 1;
+  cardClear[i] = dt > 0 ? damp(cardClear[i], target, CARD_FADE_LAMBDA, dt) : target;
+  return cardClear[i];
 }
 
 /**
@@ -1371,7 +1408,7 @@ function cardOpacity(slot, tanks) {
  *
  * @param {number} [alpha=1] chrome opacity, see `cardOpacity()`
  */
-function drawPlayerCard(ctx, slot, tank, name, target, alpha) {
+function drawPlayerCard(ctx, slot, tank, name, target, alpha, textAlpha) {
   const col = resolveColor(tank.color);
   const x = slot.x;
   const y = slot.y;
@@ -1382,6 +1419,7 @@ function drawPlayerCard(ctx, slot, tank, name, target, alpha) {
   const align = right ? 'right' : 'left';
   const dir = right ? -1 : 1;
   const dim = Number.isFinite(alpha) ? clamp(alpha, 0, 1) : 1;
+  const ink = Number.isFinite(textAlpha) ? clamp(textAlpha, 0, 1) : 1;
 
   ctx.save();
   ctx.globalAlpha = dim;
@@ -1399,8 +1437,9 @@ function drawPlayerCard(ctx, slot, tank, name, target, alpha) {
   const stripX = right ? x + CARD_W - 9 : x + 3;
   fillRoundRect(ctx, stripX, y + 8, 6, CARD_H - 16, 3, col.main);
 
-  // From here on everything is content: full opacity, always readable.
-  ctx.globalAlpha = 1;
+  // Innentől a tartalom jön. Ez is halványul, de csak félig: a sötét kontúr
+  // miatt olvasható marad, viszont már átlátszik alatta a tank.
+  ctx.globalAlpha = ink;
 
   ctx.textBaseline = 'middle';
   ctx.textAlign = align;
@@ -1433,11 +1472,13 @@ function drawPlayerCard(ctx, slot, tank, name, target, alpha) {
   }
   ctx.globalAlpha = 1;
 
-  // Respawn countdown while dead. The cover has to be nearly opaque, otherwise
-  // the score and the K/D line underneath bleed through the countdown digits —
-  // so it is drawn at full opacity even while the card is dimmed.
+  // Respawn countdown while dead. A takaró réteg majdnem átlátszatlan, hogy a
+  // pontszám ne üssön át a számlálón — de ha épp EGY MÁSIK tank harcol a
+  // kártya alatt, ez a réteg takarná ki a legjobban, ezért az is halványul.
   if (tank.alive === false) {
+    ctx.globalAlpha = dim;
     fillRoundRect(ctx, x, y, CARD_W, CARD_H, 12, 'rgba(6, 9, 15, 0.94)');
+    ctx.globalAlpha = ink;
     ctx.textAlign = 'center';
     ctx.font = font(14, 700);
     ctx.fillStyle = 'rgba(226, 232, 240, 0.75)';
@@ -1445,6 +1486,7 @@ function drawPlayerCard(ctx, slot, tank, name, target, alpha) {
     const rt = Math.max(0, tank.respawnTimer ?? 0);
     ctx.font = font(40, 900);
     outlinedText(ctx, `${rt.toFixed(1)} s`, x + CARD_W / 2, y + 68, col.light, 'rgba(0,0,0,0.85)', 5);
+    ctx.globalAlpha = 1;
   }
 
   ctx.restore();
@@ -1741,7 +1783,7 @@ export function drawGame(ctxOrWrapper, game, t) {
 
   // ---- unshaken overlays ----
   drawScreenFlash(ctx, fx);
-  drawHud(ctx, game, tanks);
+  drawHud(ctx, game, tanks, time);
 
   if (state === 'countdown') {
     drawCountdown(ctx, Math.max(0.001, countdownRemaining(game, time)), time);

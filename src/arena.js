@@ -629,7 +629,56 @@ export function pathBlocked(x1, y1, x2, y2, walls) {
   return segmentBlocked(x1, y1, x2, y2, walls || EMPTY_WALLS);
 }
 
+/**
+ * Mennyi szabad a szakaszból az első falig.
+ *
+ * A botoknak nem elég az "el van torlaszolva?" igen/nem: egy sarokban MINDEN
+ * irány torlaszolt, és ilyenkor a legkevésbé torlaszoltat kell választani,
+ * különben a tank nekihajt a falnak és ott marad.
+ *
+ * @returns {number} 0..1 — a szakasz szabad hányada (1 = teljesen szabad)
+ */
+export function pathClearance(x1, y1, x2, y2, walls) {
+  const list = walls || EMPTY_WALLS;
+  let best = 1;
+  for (let i = 0; i < list.length; i++) {
+    const t = segmentEntry(x1, y1, x2, y2, list[i]);
+    if (t >= 0 && t < best) best = t;
+  }
+  return best;
+}
+
 const EMPTY_WALLS = [];
+
+/**
+ * Liang-Barsky belépési paraméter: hol találja el a szakasz a téglalapot.
+ * @returns {number} 0..1 a találat helye, vagy -1 ha nincs találat
+ */
+function segmentEntry(x1, y1, x2, y2, w) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  let t0 = 0;
+  let t1 = 1;
+
+  const p = [-dx, dx, -dy, dy];
+  const q = [x1 - w.x, (w.x + w.w) - x1, y1 - w.y, (w.y + w.h) - y1];
+
+  for (let i = 0; i < 4; i++) {
+    if (p[i] === 0) {
+      if (q[i] < 0) return -1;
+    } else {
+      const t = q[i] / p[i];
+      if (p[i] < 0) {
+        if (t > t1) return -1;
+        if (t > t0) t0 = t;
+      } else {
+        if (t < t0) return -1;
+        if (t < t1) t1 = t;
+      }
+    }
+  }
+  return t0;
+}
 
 /** True when at least one wall blocks the segment. */
 function segmentBlocked(x1, y1, x2, y2, walls) {
