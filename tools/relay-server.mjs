@@ -31,6 +31,7 @@
 
 import http from 'node:http';
 import { randomBytes } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
 
 const args = process.argv.slice(2);
 function argValue(name, fallback) {
@@ -189,20 +190,31 @@ function routePath(pathname) {
   return i >= 0 ? pathname.slice(i) : pathname;
 }
 
-const server = http.createServer(async (req, res) => {
+/**
+ * A relay kérés-kezelője.
+ *
+ * Beköthető egy nagyobb kiszolgálóba is (lásd `app.js`): ha a kérés nem az
+ * `/api/` alá esik, NEM válaszol, hanem `false`-szal jelzi, hogy a hívó
+ * szolgálja ki — így ugyanaz a folyamat adhatja a játék statikus fájljait és
+ * a szobákat is.
+ *
+ * @returns {Promise<boolean>} true, ha ez a kérés a relayé volt
+ */
+export async function relayRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const path = routePath(url.pathname);
+  if (!path.startsWith('/api/')) return false;
 
   if (req.method === 'OPTIONS') {
     cors(res);
     res.writeHead(204);
     res.end();
-    return;
+    return true;
   }
 
   if (path === '/api/health') {
     sendJson(res, 200, { ok: true, rooms: rooms.size });
-    return;
+    return true;
   }
 
   // --- új szoba ------------------------------------------------------------
@@ -213,13 +225,13 @@ const server = http.createServer(async (req, res) => {
     room.members.set(id, { id, res: null, queue: [], seen: Date.now() });
     rooms.set(code, room);
     sendJson(res, 200, { code, id, hostId: id });
-    return;
+    return true;
   }
 
   const match = path.match(/^\/api\/room\/([A-Z0-9]{4,12})\/(join|events|send|leave)$/i);
   if (!match) {
     sendJson(res, 404, { error: 'ismeretlen végpont' });
-    return;
+    return true;
   }
 
   const code = match[1].toUpperCase();
@@ -227,7 +239,7 @@ const server = http.createServer(async (req, res) => {
   const room = rooms.get(code);
   if (!room) {
     sendJson(res, 404, { error: 'nincs ilyen szoba', code });
-    return;
+    return true;
   }
   room.touched = Date.now();
 
@@ -235,20 +247,20 @@ const server = http.createServer(async (req, res) => {
   if (action === 'join' && req.method === 'POST') {
     if (room.members.size >= MAX_MEMBERS) {
       sendJson(res, 409, { error: 'a szoba tele van' });
-      return;
+      return true;
     }
     const id = makeId();
     room.members.set(id, { id, res: null, queue: [], seen: Date.now() });
     announce(room, 'peer-join', id);
     sendJson(res, 200, { id, hostId: room.hostId, code });
-    return;
+    return true;
   }
 
   const id = url.searchParams.get('id') || '';
   const member = room.members.get(id);
   if (!member) {
     sendJson(res, 403, { error: 'ismeretlen résztvevő' });
-    return;
+    return true;
   }
   member.seen = Date.now();
 
@@ -285,30 +297,48 @@ const server = http.createServer(async (req, res) => {
         announce(room, 'peer-left', id);
       }
     });
-    return;
+    return true;
   }
 
   // --- üzenetküldés --------------------------------------------------------
   if (action === 'send' && req.method === 'POST') {
     let body;
     try { body = await readBody(req); }
-    catch (err) { sendJson(res, 400, { error: String(err.message || err) }); return; }
+    catch (err) { sendJson(res, 400, { error: String(err.message || err) }); return true; }
     route(room, id, body || {});
     sendJson(res, 200, { ok: true });
-    return;
+    return true;
   }
 
   if (action === 'leave' && req.method === 'POST') {
     room.members.delete(id);
     announce(room, 'peer-left', id);
     sendJson(res, 200, { ok: true });
-    return;
+    return true;
   }
 
   sendJson(res, 405, { error: 'nem támogatott metódus' });
-});
+  return true;
+}
 
-server.listen(PORT, HOST, () => {
-  console.log(`Slag relay fut:  http://${HOST}:${PORT}`);
-  console.log('Állapot:         /api/health');
-});
+/* ------------------------------------------------------------------------ *
+ * Önálló futtatás
+ *
+ * Közvetlenül indítva saját kiszolgálót nyit. Ha viszont csak importálják
+ * (pl. az `app.js`-ből, ami a játékot is kiszolgálja), nem foglal portot.
+ * ------------------------------------------------------------------------ */
+
+const startedDirectly = process.argv[1]
+  && pathToFileURL(process.argv[1]).href === import.meta.url;
+
+if (startedDirectly) {
+  const server = http.createServer(async (req, res) => {
+    if (await relayRequest(req, res)) return;
+    sendJson(res, 404, { error: 'ismeretlen végpont' });
+  });
+
+  server.listen(PORT, HOST, () => {
+    console.log(`Slag relay fut:  http://${HOST}:${PORT}`);
+    console.log('Állapot:         /api/health');
+  });
+}

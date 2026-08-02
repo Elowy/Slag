@@ -402,39 +402,50 @@ npm error enoent Could not read package.json
 
 Ez nem a te hibád és nem is baj: egyszerűen hagyd ki ezt a lépést.
 
-**1. A játék (statikus fájlok).** Töltsd fel a webgyökérbe (a domain
-document rootjába) ezeket: `index.html`, `styles.css` és a teljes `src/`
-mappa. Ennyitől a játék már megy — egy gépen, helyben.
+**1. Töltsd fel a projektet** az alkalmazás mappájába (ez lehet a domain
+könyvtára is). Ezek kellenek:
 
-**2. A relay (csak az online szobákhoz).** A `tools/` mappát és az `app.js`-t
-tedd a webgyökéren **kívülre**, pl. `~/slag-relay/`-be, hogy ne lehessen
-böngészőből letölteni. Utána a cPanelben:
+```
+index.html   styles.css   src/   app.js   tools/
+```
+
+**2. Állítsd be a Node-alkalmazást:**
 
 | Mező | Érték |
 |---|---|
-| Application root | `slag-relay` |
-| Application URL | `tank.luiz-tech.hu/relay` |
+| Application root | `tank.luiz-tech.hu` (ahova feltöltötted) |
+| Application URL | `tank.luiz-tech.hu` — **a domain gyökere** |
 | Application startup file | `app.js` |
 | Node.js version | 18 vagy újabb |
 
-A portot a Passenger adja, a relay magától felveszi. Az sem gond, hogy nem a
-gyökéren ül: az útvonal-előtagot (`/relay`) a kiszolgáló levágja.
+**3. Indítsd újra az alkalmazást.** Kész — nincs harmadik lépés.
 
-**3. Mondd meg a játéknak, hol a relay.** Az `index.html`-be, a modul
-betöltése **elé**:
+Az `app.js` **egyszerre szolgálja ki a játékot és a szobákat**. Ezért nem kell
+sem `window.SLAG_RELAY`, sem `?relay=` a linkben: minden azonos címről jön, a
+játék magától megtalálja a szobákat. A megosztható link is letisztult:
+`https://tank.luiz-tech.hu/?szoba=ABC123`.
 
-```html
-<script>window.SLAG_RELAY = 'https://tank.luiz-tech.hu/relay';</script>
-```
+A kiszolgáló-oldali fájlokat (`tools/`, `app.js`, `package.json`, rejtett
+fájlok) a beépített statikus kiszolgáló **nem adja ki** böngészőnek, akkor sem,
+ha az alkalmazás mappája egyben a webgyökér.
 
-Ellenőrzés: a `https://tank.luiz-tech.hu/relay/api/health` címnek
-`{"ok":true,"rooms":0}`-t kell adnia. Ha ezt látod, kész vagy.
+Ellenőrzés: a `https://tank.luiz-tech.hu/api/health` címnek
+`{"ok":true,"rooms":0}`-t kell adnia.
 
-> **Ha a szoba létrejön, de semmi nem frissül:** a tárhely webkiszolgálója
-> puffereli a folyamatos választ. A relay ez ellen küldi az
-> `X-Accel-Buffering: no` fejlécet, de nem minden beállítás veszi figyelembe.
-> Ilyenkor a tárhely támogatásától kell kérni, hogy a `/relay` útvonalon
-> kapcsolják ki a pufferelést (proxy buffering).
+> **404-et kapsz a játékra?** Akkor az `index.html` nincs ott, ahova az
+> `app.js`-t tetted — a kettőnek **ugyanabban a mappában** kell lennie.
+>
+> **A szoba létrejön, de a másik gépen nem frissül semmi?** A tárhely
+> webkiszolgálója puffereli a folyamatos választ. A relay ez ellen küldi az
+> `X-Accel-Buffering: no` fejlécet, de nem minden beállítás veszi figyelembe;
+> ilyenkor a tárhely támogatásától kell kérni a pufferelés (proxy buffering)
+> kikapcsolását.
+
+### Ha a tárhelyeden nem futhat Node
+
+Akkor a játék statikus része (`index.html`, `styles.css`, `src/`) önmagában is
+felmásolható, és **helyben, egy gépen játszható** — csak az online szobák
+maradnak ki, mert azokhoz kell a futó folyamat.
 
 ### Hogyan játszotok
 
