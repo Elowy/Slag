@@ -403,11 +403,16 @@ npm error enoent Could not read package.json
 Ez nem a te hibád és nem is baj: egyszerűen hagyd ki ezt a lépést.
 
 **1. Töltsd fel a projektet** az alkalmazás mappájába (ez lehet a domain
-könyvtára is). Ezek kellenek:
+könyvtára is). Pontosan ezek kellenek, más semmi:
 
 ```
 index.html   styles.css   src/   app.js   tools/
 ```
+
+A `package.json` **nem** kell hozzá: az `app.js` szándékosan úgy készült, hogy
+enélkül is elinduljon. (A Node egy `.js` fájlt alapból régi modulként futtat,
+és csak a `package.json` `"type": "module"` sorától kezeli ES-modulként — ha
+az a fájl lemarad, egy `import` sortól az egész alkalmazás 500-as hibát adna.)
 
 **2. Állítsd be a Node-alkalmazást:**
 
@@ -428,6 +433,17 @@ játék magától megtalálja a szobákat. A megosztható link is letisztult:
 A kiszolgáló-oldali fájlokat (`tools/`, `app.js`, `package.json`, rejtett
 fájlok) a beépített statikus kiszolgáló **nem adja ki** böngészőnek, akkor sem,
 ha az alkalmazás mappája egyben a webgyökér.
+
+> Sok tárhelyen viszont a **webszerver előbb megtalálja** a létező fájlokat, és
+> ki is adja őket, mielőtt a Node-alkalmazáshoz jutna a kérés. Ilyenkor a fenti
+> védelem nem érvényesül. Ha ez zavar, tedd a meglévő `.htaccess` **végére**:
+>
+> ```apache
+> RedirectMatch 404 ^/(tools|node_modules)/
+> RedirectMatch 404 ^/(app\.js|package(-lock)?\.json)$
+> ```
+>
+> Titkot egyik fájl sem tartalmaz, ez csak rendrakás.
 
 Ellenőrzés: a `https://tank.luiz-tech.hu/api/health` címnek
 `{"ok":true,"rooms":0}`-t kell adnia.
