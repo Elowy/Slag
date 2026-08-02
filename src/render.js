@@ -1981,6 +1981,20 @@ function slotFocus(slot) {
  * at two metres. Returns the total drawn width.
  */
 function trackedText(ctx, text, cx, y, tracking) {
+  // A gyors út: a böngésző saját betűközét használjuk, egyetlen rajzolással.
+  if ('letterSpacing' in ctx) {
+    const prev = ctx.letterSpacing;
+    ctx.letterSpacing = `${tracking}px`;
+    const prevAlign = ctx.textAlign;
+    ctx.textAlign = 'center';
+    // A betűköz az UTOLSÓ betű után is hozzáadódik, ezért a fele szélességgel
+    // balra toljuk a középpontot — így a szöveg optikailag valóban középen áll.
+    ctx.fillText(String(text), cx - tracking / 2, y);
+    const w = ctx.measureText(String(text)).width - tracking;
+    ctx.textAlign = prevAlign;
+    ctx.letterSpacing = prev;
+    return w;
+  }
   const chars = Array.from(String(text));
   let total = -tracking;
   const adv = [];
@@ -2093,7 +2107,7 @@ export function drawLobby(ctxOrWrapper, lobby, t) {
   const canStart = lobby.canStart === true;
 
   beginFrame(ctx);
-  drawLobbyBackground(ctx, time); // PERFTEST
+  drawLobbyBackground(ctx, time);
   drawLobbyTitle(ctx, time);
 
   // ---- taken colours (a colour may only be used once) ----
@@ -2222,7 +2236,6 @@ function getLobbyBackdrop() {
 }
 
 function drawLobbyBackground(ctx, t) {
-  if (globalThis.__noBg) return;
   const backdrop = getLobbyBackdrop();
   if (backdrop) ctx.drawImage(backdrop, 0, 0, LOGICAL_W, LOGICAL_H);
   else paintLobbyBackdrop(ctx);
@@ -2263,7 +2276,6 @@ function drawLobbyBackground(ctx, t) {
 
 /** The rocking tank preview + its hexagonal pad, in card-local coordinates. */
 function drawSlotPreview(ctx, col, index, t, alpha) {
-  if (globalThis.__noTank) return;
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.translate(SLOT_W / 2, SLOT_TANK_Y);
@@ -2311,7 +2323,6 @@ function drawSlotPreview(ctx, col, index, t, alpha) {
 }
 
 function drawLobbySlot(ctx, x, y, slot, index, taken, t) {
-  if (globalThis.__noCards) return;
   ctx.save();
   ctx.translate(x, y);
   ctx.textBaseline = 'middle';
@@ -2709,7 +2720,6 @@ function pendingNames(slots) {
  *   885..899  keyboard scheme B
  */
 function drawLobbyFooter(ctx, lobby, canStart, t) {
-  if (globalThis.__noFooter) return;
   ctx.save();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';

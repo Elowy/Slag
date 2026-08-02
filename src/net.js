@@ -187,11 +187,17 @@ export class Room {
     const body = to ? { ...payload, to } : payload;
     // Tűzz-és-felejtsd: egy elveszett input- vagy állapotcsomag helyett a
     // következő úgyis frissebb. Hibát csak naplózunk.
+    //
+    // FONTOS: itt NINCS `keepalive`. A böngésző a keepalive-kérésekre szűk,
+    // közös kvótát tart fenn (Chrome-ban 64 kB az összes függőben lévőre), és
+    // ami nem fér bele, azt egyszerűen eldobja. Másodpercenként 40 input-
+    // csomagnál ez mérve a csomagok ~39%-át elnyelte — a távoli játékos
+    // irányítása emiatt akadozott. Az oldal elhagyásakor küldött "leave"
+    // beacon marad az egyetlen keepalive-jellegű hívás.
     fetch(`${this.relay}/api/room/${this.code}/send?id=${encodeURIComponent(this.id)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      keepalive: true,
     }).catch(() => { /* a következő csomag pótolja */ });
   }
 
