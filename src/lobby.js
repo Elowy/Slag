@@ -383,11 +383,6 @@ export class Lobby {
     // to see the start prompt, change a colour or take their ready back.
     const spentConfirm = new Set();
 
-    // A `canStart` a hurok alatt változhatna (valaki készre vált), és akkor
-    // ugyanaz a két gombnyomás az ÜLÉSRENDTŐL függően mást jelentene. Egyszer
-    // számoljuk ki, és mindenkire ugyanaz vonatkozzon.
-    const canStartNow = this.canStart;
-
     // 1. Players already in a slot: focus, colour, settings, ready, leave.
     for (let i = 0; i < this._slots.length; i++) {
       const slot = this._slots[i];
@@ -398,11 +393,15 @@ export class Lobby {
       const edge = edges.get(slot.deviceId) || this._readEdges(slot.deviceId);
 
       if (edge.confirm && edge.start) {
-        // One key, two meanings (keyboard `Enter`). One press is one action:
-        // "ready" while there is still something to get ready for, "start" once
-        // this player is ready and the lobby can actually start. Taking the
-        // ready back stays possible with Kör / Esc.
-        if (slot.ready && canStartNow) edge.confirm = false;
+        // Egy fizikai billentyű, két jelentés (a billentyűzet `Enter`-e).
+        // A döntés KIZÁRÓLAG a saját kész állapotán múlik: még nem kész →
+        // a nyomás a "kész"-é, már kész → az "indítás"-é.
+        //
+        // Korábban a `canStart` is beleszólt, ami versenyhelyzetet okozott:
+        // ha valaki más (pl. egy online játékos) ugyanabban a körben lett
+        // kész, ez a slot még a régi `canStart`-ot látta, és indítás helyett
+        // VISSZAVETTE a saját készét. A kész visszavonása maradt a Kör / Esc.
+        if (slot.ready) edge.confirm = false;
         else spentConfirm.add(slot.deviceId);
       } else if (edge.confirm) {
         spentConfirm.add(slot.deviceId);

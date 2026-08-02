@@ -352,9 +352,77 @@ function resetPrev(p) {
 const devices = new Map();
 /** @type {Array<object>} keyboard records only - hot path for key events. */
 const keyboardDevices = [];
+/** @type {Array<object>} hálózaton lévő játékosok eszközei. */
+const remoteDevices = [];
 
 let initialized = false;
 let lastPollTime = -Infinity;
+
+/* ------------------------------------------------------------------------ *
+ * Távoli játékosok
+ * ------------------------------------------------------------------------ */
+
+const REMOTE_EDGE_KEYS = ['fire', 'confirm', 'cancel', 'start', 'prev', 'next', 'up', 'down'];
+
+function makeRemoteEdges() {
+  return { fire: false, confirm: false, cancel: false, start: false, prev: false, next: false, up: false, down: false };
+}
+
+/**
+ * A SAJÁT gombéleink gyűjtője két hálózati küldés között.
+ * Minden poll után ide OR-oljuk az éleket, a `serializeLocalInput()` üríti.
+ */
+const localEdges = makeRemoteEdges();
+
+function clearLocalEdges() {
+  for (let i = 0; i < REMOTE_EDGE_KEYS.length; i++) localEdges[REMOTE_EDGE_KEYS[i]] = false;
+}
+
+/** Egy helyi eszköz éleit hozzáadja a hálózati gyűjtőhöz. */
+function accumulateLocalEdges(s) {
+  if (s.firePressed) localEdges.fire = true;
+  if (s.confirmPressed) localEdges.confirm = true;
+  if (s.cancelPressed) localEdges.cancel = true;
+  if (s.startPressed) localEdges.start = true;
+  if (s.prevPressed) localEdges.prev = true;
+  if (s.nextPressed) localEdges.next = true;
+  if (s.upPressed) localEdges.up = true;
+  if (s.downPressed) localEdges.down = true;
+}
+
+/**
+ * A távoli eszköz állapotának összerakása pollonként.
+ *
+ * Az analóg mezők a legutóbb kapott csomagból jönnek, a gombélek pedig a
+ * gyűjtőből — mindegyik pontosan egy pollig él, ahogy egy helyi eszközön is.
+ */
+function updateRemoteDevice(dev) {
+  const s = dev.state;
+  const r = dev.remote;
+
+  s.moveX = r.moveX; s.moveY = r.moveY; s.moveMag = r.moveMag;
+  s.aimX = r.aimX; s.aimY = r.aimY; s.aimMag = r.aimMag;
+  s.fire = r.fire;
+  s.fireHeld = r.fireHeld;
+
+  const q = r.edges;
+  s.firePressed = q.fire;
+  s.confirmPressed = q.confirm;
+  s.cancelPressed = q.cancel;
+  s.startPressed = q.start;
+  s.prevPressed = q.prev;
+  s.nextPressed = q.next;
+  s.upPressed = q.up;
+  s.downPressed = q.down;
+  s.anyPressed = q.fire || q.confirm || q.cancel || q.start || q.prev || q.next || q.up || q.down;
+
+  for (let i = 0; i < REMOTE_EDGE_KEYS.length; i++) q[REMOTE_EDGE_KEYS[i]] = false;
+
+  if (dev.suppressEdges) {
+    clearEdges(s);
+    dev.suppressEdges = false;
+  }
+}
 
 function makeDeviceRecord(id, kind, label) {
   return {
@@ -699,6 +767,111 @@ export const Input = {
     for (let i = 0; i < keyboardDevices.length; i++) {
       updateKeyboardDevice(keyboardDevices[i]);
     }
+    for (let i = 0; i < remoteDevices.length; i++) {
+      updateRemoteDevice(remoteDevices[i]);
+    }
+
+    // A helyi gombélek gyűjtése a hálózati küldéshez. Csak a SAJÁT
+    // eszközöket nézzük — a távoliak élei már átjöttek a hálózaton.
+    for (const dev of devices.values()) {
+      if (dev.kind === 'remote' || !dev.connected) continue;
+      accumulateLocalEdges(dev.state);
+    }
+  },
+
+  /**
+   * Távoli (hálózaton lévő) játékos felvétele eszközként.
+   *
+   * Így a lobbi és a meccs egyetlen sornyi külön ág nélkül kezeli: számukra
+   * ez ugyanolyan eszköz, mint egy kontroller. A távoli fél csak a NYOMVA
+   * TARTOTT állapotot küldi; az éleket itt, helyben számoljuk ki, mert egy
+   * hálózaton átküldött "épp most nyomta meg" él elveszhet vagy duplázódhat.
+   *
+   * @param {string} id egyedi eszköz-azonosító (pl. `net-ab12`)
+   * @param {string} label a lobbiban megjelenő név
+   */
+  addRemoteDevice(id, label) {
+    if (!id || devices.has(id)) return;
+    const dev = makeDeviceRecord(id, 'remote', label || 'Távoli játékos');
+    dev.connected = true;
+    dev.remote = {
+      moveX: 0, moveY: 0, moveMag: 0, aimX: 0, aimY: 0, aimMag: 0,
+      fire: 0, fireHeld: false, fresh: 0, edges: makeRemoteEdges(),
+    };
+    devices.set(id, dev);
+    remoteDevices.push(dev);
+  },
+
+  /**
+   * A távoli fél legfrissebb, nyomva tartott állapota.
+   * @param {string} id
+   * @param {object} payload `serializeLocalInput()` kimenete
+   */
+  setRemoteState(id, payload) {
+    const dev = devices.get(id);
+    if (!dev || dev.kind !== 'remote' || !payload) return;
+    const r = dev.remote;
+    r.moveX = Number.isFinite(payload.mx) ? payload.mx : 0;
+    r.moveY = Number.isFinite(payload.my) ? payload.my : 0;
+    r.moveMag = clamp01(payload.mm);
+    r.aimX = Number.isFinite(payload.ax) ? payload.ax : 0;
+    r.aimY = Number.isFinite(payload.ay) ? payload.ay : 0;
+    r.aimMag = clamp01(payload.am);
+    r.fire = clamp01(payload.f);
+    r.fireHeld = !!payload.fh;
+    // Az élek GYŰLNEK a következő pollig: két csomag is érkezhet egy poll
+    // közé, és egyik gombnyomás sem veszhet el.
+    const e = payload.e || {};
+    const q = r.edges;
+    for (const k of REMOTE_EDGE_KEYS) if (e[k]) q[k] = true;
+    r.fresh = nowMs();
+  },
+
+  /** @param {string} id */
+  removeRemoteDevice(id) {
+    const dev = devices.get(id);
+    if (!dev || dev.kind !== 'remote') return;
+    devices.delete(id);
+    const i = remoteDevices.indexOf(dev);
+    if (i >= 0) remoteDevices.splice(i, 1);
+  },
+
+  /**
+   * A SAJÁT eszközök állapota hálózatra csomagolva.
+   *
+   * Az analóg részt a legaktívabb helyi eszközről vesszük (így a távoli
+   * játékos nincs egyetlen konkrét kontrollerhez kötve), a GOMBÉLEKET viszont
+   * az utolsó küldés óta gyűjtjük össze. Egy él pontosan egy pollig él, tehát
+   * ha csak a pillanatnyi állapotot küldenénk, két küldés közé eső gombnyomás
+   * nyomtalanul elveszne — pont a lobbiban, ahol minden gombnyomás számít.
+   *
+   * A hívás ÜRÍTI a gyűjtőt, tehát küldésenként egyszer hívd.
+   * @returns {object|null}
+   */
+  serializeLocalInput() {
+    if (!initialized) this.init();
+    let dev = null;
+    for (const d of orderedDevices()) {
+      if (d.kind === 'remote' || !d.connected) continue;
+      const s = d.state;
+      if (s.moveMag > 0 || s.aimMag > 0 || s.fireHeld) { dev = d; break; }
+      if (!dev) dev = d;
+    }
+    if (!dev) return null;
+
+    const s = dev.state;
+    const e = localEdges;
+    const packet = {
+      mx: s.moveX, my: s.moveY, mm: s.moveMag,
+      ax: s.aimX, ay: s.aimY, am: s.aimMag,
+      f: s.fire, fh: !!s.fireHeld,
+      e: {
+        fire: e.fire, confirm: e.confirm, cancel: e.cancel, start: e.start,
+        prev: e.prev, next: e.next, up: e.up, down: e.down,
+      },
+    };
+    clearLocalEdges();
+    return packet;
   },
 
   /**

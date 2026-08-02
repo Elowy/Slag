@@ -36,6 +36,49 @@
     </div>
   </div>
 
+  <!-- Online szoba. Szándékosan DOM és nem canvas: itt kell linket másolni és
+       szobakódot beírni, amihez valódi szövegmező és vágólap kell. A lobbi
+       fölött lebeg, a meccs alatt összecsukva. online-ui.js tölti meg. -->
+  <div id="online" class="online" hidden>
+    <button id="online-toggle" class="online-tab" type="button" aria-expanded="false">
+      Online szoba
+    </button>
+
+    <div id="online-body" class="online-body" hidden>
+      <p id="online-status" class="online-status">Játssz egy gépen, vagy hívj be másokat egy linkkel.</p>
+
+      <div id="online-idle" class="online-block">
+        <button id="online-host" class="online-btn primary" type="button">Szoba nyitása</button>
+        <div class="online-join">
+          <label for="online-code">Csatlakozás kóddal</label>
+          <div class="online-row">
+            <input id="online-code" type="text" inputmode="latin" autocomplete="off"
+                   spellcheck="false" maxlength="8" placeholder="ABC123">
+            <button id="online-join" class="online-btn" type="button">Csatlakozás</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="online-room" class="online-block" hidden>
+        <p class="online-label">Szobakód</p>
+        <p id="online-room-code" class="online-code">------</p>
+        <p class="online-label">Megosztható link</p>
+        <div class="online-row">
+          <input id="online-link" type="text" readonly>
+          <button id="online-copy" class="online-btn" type="button">Másol</button>
+        </div>
+        <p id="online-peers" class="online-note"></p>
+        <button id="online-leave" class="online-btn danger" type="button">Kilépés a szobából</button>
+      </div>
+
+      <p id="online-error" class="online-error" hidden></p>
+      <p class="online-note">
+        A játék bármelyik tárhelyről megy, de két böngészőt csak egy futó
+        kiszolgáló tud összekötni. Lásd a README „Online szoba” fejezetét.
+      </p>
+    </div>
+  </div>
+
   <!-- Filled in and revealed by main.js when something throws, so the game
        never dies silently on a black screen. -->
   <div id="error-overlay" class="overlay error" hidden>

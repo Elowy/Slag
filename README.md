@@ -353,16 +353,74 @@ https://<felhasználónév>.github.io/<repónév>/
 Másold a fájlokat a webgyökérbe, és **kapcsold be a HTTPS-t** (a Let's Encrypt
 ingyenes). Semmilyen egyéb beállítás nem kell — nincs adatbázis, nincs backend.
 
-### Amit az online link *nem* csinál
+---
 
-A megosztott linken mindenki a **saját gépén** nyitja meg a játékot, és ott
-játszik helyben, saját kontrollerekkel. **Nem** hálózati multiplayer: távoli
-barátok nem tudnak ugyanabba a meccsbe csatlakozni — ahhoz külön hálózati kód
-(netcode) és szerver kellene, ami nincs benne.
+## 10. Online szoba (távoli barátok)
+
+Ha nem egy kanapén ültök: a játékban nyithatsz **szobát**, és a kapott linkkel
+mások távolról is beülhetnek ugyanabba a meccsbe.
+
+### Mire van szükség
+
+A játék statikus fájljait bármelyik tárhely kiszolgálja — de **két böngészőt
+egyetlen tárhely sem tud összekötni**. Ehhez kell egy futó folyamat, ami a
+csomagokat továbbadja. Ez a `tools/relay-server.mjs`: egy kicsi, függőség
+nélküli Node-kiszolgáló.
+
+```bash
+node tools/relay-server.mjs --port 8090
+```
+
+Kétféleképp állíthatod be, hol keresse a játék:
+
+```html
+<!-- 1. Az index.html-be, a modul betöltése ELŐTT: -->
+<script>window.SLAG_RELAY = 'https://relay.pelda.hu';</script>
+```
+
+```
+2. Vagy a linkben, beállítás nélkül:
+   https://pelda.hu/slag/?relay=https://relay.pelda.hu
+```
+
+Ha a játékot és a relayt **ugyanaz a gép** szolgálja ki, semmit nem kell
+beállítani: alapból a saját címét használja.
+
+> **HTTPS-oldal csak HTTPS-relayt érhet el.** Ha a játék `https://`-en van, a
+> relaynek is annak kell lennie, különben a böngésző letiltja a kapcsolatot.
+
+### Hogyan játszotok
+
+1. Egyvalaki megnyomja az **Online szoba → Szoba nyitása** gombot.
+2. Elküldi a megjelenő **linket** (vagy a 6 karakteres kódot).
+3. A többiek megnyitják a linket — magától csatlakoznak.
+4. Innentől minden ugyanaz, mint egy gépen: **R2 / Space** a beüléshez,
+   **Kereszt / Enter** a készhez, **Options / Enter** az indításhoz. A távoli
+   játékos ugyanúgy elfoglal egy helyet a lobbiban, mint aki melletted ül.
+5. Vegyíthető: nálad ülhet két ember egy-egy kontrollerrel, és jöhet még
+   kettő távolról. Négy hely van összesen, gépi ellenfelekkel kiegészíthető.
+
+### Hogyan működik, és mi az ára
+
+A **szobát nyitó gépen fut a meccs** — ő az igazság forrása. A távoli
+játékosok elküldik, mit nyomnak, és visszakapják a kész képet. Így a két gép
+állapota soha nem tud szétcsúszni.
+
+Cserébe **a távoli játékos a saját mozgását is késleltetve látja**: annyival,
+amennyi idő alatt a csomag megjárja a relayt oda-vissza. Egy közeli
+kiszolgálóval ez alig érezhető, egy másik kontinensen lévővel viszont zavaró.
+Tedd a relayt olyan helyre, ami mindkettőtökhöz közel van.
+
+Amit a mostani változat **nem** tud: nincs késleltetés-kompenzáció (a távoli
+játékos nem "előre jelzi" a saját mozgását), és ha a szoba gazdája kilép, a
+meccs véget ér — nincs gazdaátadás.
+
+> **A böngészőfül maradjon előtérben.** A böngészők lelassítják a háttérben
+> lévő lapokat; ilyenkor a távoli játékos irányítása akadozni fog.
 
 ---
 
-## 10. Parancsok röviden
+## 11. Parancsok röviden
 
 | Parancs | Mit csinál |
 |---|---|
@@ -370,5 +428,6 @@ barátok nem tudnak ugyanabba a meccsbe csatlakozni — ahhoz külön hálózati
 | `npm start -- --port 3000` | Ugyanaz, más porton |
 | `npm run build` | Elkészíti az egyfájlos `dist/slag.html`-t |
 | `npm run smoke` | Automata önteszt: lejátszik egy kört fejnélküli böngészőben, és képernyőképeket ment a `.artifacts/` mappába |
+| `npm run relay` | Elindítja az online szobák kiszolgálóját a 8090-es porton |
 
 Jó csatát!

@@ -29,6 +29,8 @@ import { Audio } from './audio.js';
 import { initRender, resize, drawGame, drawLobby } from './render.js';
 import { Lobby } from './lobby.js';
 import { Game } from './game.js';
+import { NetPlay } from './netplay.js';
+import { installOnlineUI, setOnlinePlaying } from './online-ui.js';
 
 /** Fixed simulation step: 120 Hz. */
 const STEP = 1 / 120;
@@ -76,6 +78,8 @@ let errorShown = false;
  * gesztus (kattintás / billentyű) oldhatja fel.
  */
 let overlayHidden = false;
+/** Vendégek voltunk-e az előző képkockán (a szobából kilépést ezzel vesszük észre). */
+let wasClient = false;
 /** @type {null|Function} az `installOverlay()` által beállított elrejtő. */
 let hideOverlayFn = null;
 
@@ -107,6 +111,7 @@ function boot() {
 
   installWindowHandlers();
   installOverlay();
+  installOnlineUI();
 
   running = true;
   requestAnimationFrame(frame);
@@ -168,6 +173,16 @@ function tick(nowMs) {
     }
   }
 
+  // --- hálózat -------------------------------------------------------------
+  // Gazdaként a lobbi/meccs állapotát küldjük, vendégként a saját inputunkat.
+  NetPlay.tick(scene === 'lobby' ? lobby : null, scene === 'game' ? game : null);
+  setOnlinePlaying(scene === 'game' || NetPlay.showingGame);
+
+  // Szobából kilépve tiszta lappal folytatjuk itthon: amíg vendégek voltunk,
+  // a helyi lobbi állt, és a közben odaérkezett gombnyomások ott ragadtak.
+  if (wasClient && NetPlay.mode !== 'client') enterLobby();
+  wasClient = NetPlay.mode === 'client';
+
   // --- once-per-frame work -------------------------------------------------
   handleEndScreenInput();
   updateCursor(dt);
@@ -180,6 +195,12 @@ function tick(nowMs) {
  * button press.
  */
 function consumeInput() {
+  // Vendégként a saját lobbink NEM fut. Enélkül ugyanaz a gombnyomás, amit a
+  // gazdának küldünk, itthon is beültetne minket egy helyi lobbiba, és egy
+  // Optionsszal akár egy párhuzamos, senki más által nem látott meccset is
+  // elindítana.
+  if (NetPlay.mode === 'client') return;
+
   if (scene === 'lobby' && lobby) {
     lobby.consumeInput();
     if (lobby.started) enterGame();
@@ -194,6 +215,9 @@ function consumeInput() {
  * @param {number} dt seconds
  */
 function stepScene(dt) {
+  // Vendégként nincs saját szimuláció: a gazdáé az egyetlen igazság.
+  if (NetPlay.mode === 'client') return;
+
   if (scene === 'lobby') {
     lobby.update(dt);
     return;
@@ -204,6 +228,18 @@ function stepScene(dt) {
 /** @param {number} nowMs */
 function draw(nowMs) {
   const t = nowMs / 1000;
+
+  // Vendégként nem a saját világunkat rajzoljuk, hanem a gazdáét: nála fut a
+  // szimuláció, mi csak a tőle kapott pillanatképet mutatjuk.
+  if (NetPlay.mode === 'client') {
+    if (NetPlay.showingGame) drawGame(ctx, NetPlay.gameView.sample(nowMs), t);
+    else {
+      NetPlay.lobbyView.time = t;
+      drawLobby(ctx, NetPlay.lobbyView, t);
+    }
+    return;
+  }
+
   if (scene === 'lobby') drawLobby(ctx, lobby, t);
   else if (game) drawGame(ctx, game, t);
 }

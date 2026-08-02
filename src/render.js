@@ -1861,6 +1861,104 @@ const SLOT_GAP = 16;
 const SLOT_Y = 158;
 const SLOT_X0 = (LOGICAL_W - (SLOT_W * 4 + SLOT_GAP * 3)) / 2;
 
+/**
+ * A kártya belső mértékei. MINDEN kártyabeli koordináta a kártya bal felső
+ * sarkához képest értendő: a rajzoló `translate(x, y)`-t hív, így egy méret
+ * megváltoztatása nem szór szét húsz abszolút konstanst.
+ *
+ * Függőleges költségvetés (kártya-lokálisan, SLOT_H = 336):
+ *   0..5     szín-akcentus csík
+ *   21..43   fejléc (név + eszközcímke), a szám-korong 19..45
+ *   54       elválasztó vonal
+ *   64..180  hatszög-talp, benne a tank előnézet (66..176)
+ *   187..203 szín-súgó szövege
+ *   208..242 paletta-sáv (a kiválasztott kerete 209..242)
+ *   256..274 szín neve
+ *   290..324 állapot-jelvény
+ */
+const SLOT_R = 18;
+const SLOT_PAD = 18;
+const SLOT_HEAD_Y = 32;
+const SLOT_TANK_Y = 122;
+const SLOT_BAR_Y = 212;
+
+/** A közös beállítás-panel mértékei. */
+const SET_W = 760;
+const SET_X = (LOGICAL_W - SET_W) / 2;
+const SET_Y = 506;
+const SET_ROW_H = 38;
+/**
+ * A sor eleji sáv, ahova a fókusz-pöttyök kerülnek. Négy játékos pöttyei
+ * `SET_X + 22 + 3*13 + 5,5 = SET_X + 66,5`-ig érnek, a címke `SET_X + 86`-nál
+ * kezdődik — így négy emberrel sem takarja el senki a "Gépi ellenfelek" elejét.
+ */
+const SET_LABEL_INDENT = 86;
+const SET_DOT_X = 22;
+const SET_DOT_PITCH = 13;
+const SET_DOT_R = 5.5;
+
+/** A lábléc fix sávjai — ezeket mértük ki, nem szabad elcsúsztatni. */
+const FOOT_PROMPT_Y = 738;
+const FOOT_PROMPT_H = 54;
+const FOOT_BAND_Y = 816;
+const FOOT_BAND_H = 40;
+const FOOT_LEGEND_Y = 852;
+
+/**
+ * A vezérlés-legenda gomb/jelentés párokra bontva: így a gomb neve külön
+ * "billentyű-kupakot" kaphat, és két méterről is meg lehet találni a szemmel.
+ * Ugyanaz az öt információ, mint korábban — az "F / M" sor csak ketté van bontva.
+ */
+const LOBBY_HINTS = [
+  ['Jobb stick', 'mozgás'],
+  ['R2', 'lövés'],
+  ['Bal stick', 'külön célzás (opcionális)'],
+  ['Options', 'indítás'],
+  ['F', 'teljes képernyő'],
+  ['M', 'némítás'],
+];
+
+/**
+ * Lassan sodródó porszemek a háttérben. Modulszinten, egyszer generálva:
+ * a lobbi minden képkockán újrarajzol, itt nem keletkezhet szemét.
+ */
+const LOBBY_MOTES = (() => {
+  const out = [];
+  let seed = 20240607;
+  const rnd = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+  for (let i = 0; i < 44; i++) {
+    out.push({
+      x: rnd() * LOGICAL_W,
+      y: rnd() * LOGICAL_H,
+      r: 0.7 + rnd() * 2.1,
+      sp: 5 + rnd() * 15,
+      a: 0.05 + rnd() * 0.11,
+    });
+  }
+  return out;
+})();
+
+/** Cached diagonal stripe geometry of the lobby background (`false` = no Path2D). */
+let lobbyStripes = null;
+
+function getLobbyStripes() {
+  if (lobbyStripes !== null) return lobbyStripes;
+  if (typeof Path2D === 'undefined') {
+    lobbyStripes = false;
+    return lobbyStripes;
+  }
+  const p = new Path2D();
+  for (let x = -LOGICAL_H - 300; x < LOGICAL_W + LOGICAL_H + 300; x += 150) {
+    p.moveTo(x, LOGICAL_H);
+    p.lineTo(x + LOGICAL_H, 0);
+  }
+  lobbyStripes = p;
+  return lobbyStripes;
+}
+
 /** Human readable arena name for a settings value. */
 function arenaLabel(arenaId) {
   if (!arenaId || arenaId === 'random') return 'Véletlen';
@@ -1875,6 +1973,110 @@ function arenaLabel(arenaId) {
 function slotFocus(slot) {
   const f = slot.focusRow ?? slot.focus ?? slot.row ?? 0;
   return Number.isFinite(f) ? f : 0;
+}
+
+/**
+ * Centred text with manual letter spacing. `ctx.letterSpacing` is not available
+ * everywhere, and a tracked-out caption is what separates a title from a label
+ * at two metres. Returns the total drawn width.
+ */
+function trackedText(ctx, text, cx, y, tracking) {
+  const chars = Array.from(String(text));
+  let total = -tracking;
+  const adv = [];
+  for (let i = 0; i < chars.length; i++) {
+    const w = ctx.measureText(chars[i]).width;
+    adv.push(w);
+    total += w + tracking;
+  }
+  const prevAlign = ctx.textAlign;
+  ctx.textAlign = 'left';
+  let x = cx - total / 2;
+  for (let i = 0; i < chars.length; i++) {
+    ctx.fillText(chars[i], x, y);
+    x += adv[i] + tracking;
+  }
+  ctx.textAlign = prevAlign;
+  return total;
+}
+
+/**
+ * A single `‹` / `›` chevron drawn as a vector — crisper than the glyph.
+ * `dir` is -1 for the left arrow (apex on the left) and +1 for the right one.
+ */
+function chevron(ctx, x, y, dir, size, color, lineWidth) {
+  ctx.beginPath();
+  ctx.moveTo(x - dir * size * 0.5, y - size);
+  ctx.lineTo(x + dir * size * 0.5, y);
+  ctx.lineTo(x - dir * size * 0.5, y + size);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+}
+
+/** Warning triangle with an exclamation mark, centred on (cx, cy). */
+function warningGlyph(ctx, cx, cy, size, color) {
+  const h = size;
+  const w = size * 1.12;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - h / 2);
+  ctx.lineTo(cx + w / 2, cy + h / 2);
+  ctx.lineTo(cx - w / 2, cy + h / 2);
+  ctx.closePath();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2.4;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - h * 0.14);
+  ctx.lineTo(cx, cy + h * 0.16);
+  ctx.lineWidth = 2.4;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx, cy + h * 0.33, 1.3, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+/**
+ * A layered panel: drop shadow, gradient body, hairline border and an inner
+ * top highlight. This is what gives the lobby depth instead of flat rectangles.
+ * Draws in the CURRENT user space, so callers may translate first.
+ */
+function lobbyPanel(ctx, x, y, w, h, r, key, top, bottom, border) {
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.34)';
+  roundRectPath(ctx, x + 2, y + 5, w - 4, h, r);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
+  roundRectPath(ctx, x + 5, y + 2, w - 10, h, r);
+  ctx.fill();
+
+  const g = cachedGradient(ctx, key, (c) => {
+    const grad = c.createLinearGradient(0, y, 0, y + h);
+    grad.addColorStop(0, top);
+    grad.addColorStop(1, bottom);
+    return grad;
+  });
+  roundRectPath(ctx, x, y, w, h, r);
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  // Inner bevel: a bright hairline on the top edge reads as "lit from above".
+  ctx.save();
+  roundRectPath(ctx, x, y, w, h, r);
+  ctx.clip();
+  ctx.beginPath();
+  ctx.moveTo(x + r * 0.6, y + 1);
+  ctx.lineTo(x + w - r * 0.6, y + 1);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.10)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.restore();
+
+  if (border) strokeRoundRect(ctx, x + 0.75, y + 0.75, w - 1.5, h - 1.5, r - 0.75, border, 1.5);
 }
 
 /**
@@ -1895,17 +2097,7 @@ export function drawLobby(ctxOrWrapper, lobby, t) {
 
   beginFrame(ctx);
   drawLobbyBackground(ctx, time);
-
-  // ---- title ----
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.font = font(74, 900);
-  outlinedText(ctx, 'SLAG', LOGICAL_W / 2, 62, '#f8fafc', 'rgba(0,0,0,0.8)', 8);
-  ctx.font = font(19, 600);
-  ctx.fillStyle = 'rgba(148, 163, 184, 0.85)';
-  ctx.fillText('4 fős helyi tankcsata — egy képernyő, egy kanapé', LOGICAL_W / 2, 108);
-  ctx.restore();
+  drawLobbyTitle(ctx, time);
 
   // ---- taken colours (a colour may only be used once) ----
   const taken = new Map();
@@ -1929,99 +2121,176 @@ export function drawLobby(ctxOrWrapper, lobby, t) {
   endFrame(ctx);
 }
 
-function drawLobbyBackground(ctx, t) {
-  const bg = cachedGradient(ctx, 'lobbybg', (c) => {
-    const g = c.createLinearGradient(0, 0, 0, LOGICAL_H);
-    g.addColorStop(0, '#131a26');
-    g.addColorStop(1, '#080b12');
+/**
+ * Title block: 22..92 the wordmark, 100..105 the palette rule, 111..129 the
+ * subtitle. The cards start at 158, so the whole block stays clear of them.
+ */
+function drawLobbyTitle(ctx, t) {
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // Wordmark. A soft coloured under-glow lifts it off the background without
+  // touching the letterforms' own contrast (pure white on near-black).
+  ctx.font = font(84, 900);
+  ctx.fillStyle = 'rgba(56, 189, 248, 0.20)';
+  ctx.fillText('SLAG', LOGICAL_W / 2, 62);
+  const titleFill = cachedGradient(ctx, 'lob-title', (c) => {
+    const g = c.createLinearGradient(0, 24, 0, 94);
+    g.addColorStop(0, '#ffffff');
+    g.addColorStop(0.55, '#e8eef7');
+    g.addColorStop(1, '#9fb3cd');
     return g;
   });
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+  outlinedText(ctx, 'SLAG', LOGICAL_W / 2, 58, titleFill, 'rgba(2, 6, 12, 0.9)', 9);
+
+  // Palette rule: the eight player colours, with a light running across them.
+  // This is the game's own colour identity used as the header's ornament.
+  const segW = 62;
+  const segGap = 4;
+  const ruleW = PALETTE.length * segW + (PALETTE.length - 1) * segGap;
+  const ruleX = (LOGICAL_W - ruleW) / 2;
+  const phase = (t * 2) % PALETTE.length;
+  for (let i = 0; i < PALETTE.length; i++) {
+    let d = Math.abs(i - phase);
+    d = Math.min(d, PALETTE.length - d);
+    ctx.globalAlpha = 0.38 + 0.62 * Math.max(0, 1 - d / 1.7);
+    fillRoundRect(ctx, ruleX + i * (segW + segGap), 100, segW, 5, 2.5, PALETTE[i].main);
+  }
+  ctx.globalAlpha = 1;
+
+  const sub = '4 fős helyi tankcsata — egy képernyő, egy kanapé';
+  const tracking = 2.4;
+  fitFont(ctx, sub, LOGICAL_W - 200 - tracking * sub.length, 18, 700);
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.92)';
+  trackedText(ctx, sub, LOGICAL_W / 2, 120, tracking);
+  ctx.restore();
+}
+
+/**
+ * Paints the STATIC part of the lobby background — base gradient, the cold
+ * spotlight behind the title and the vignette — into `target`.
+ */
+function paintLobbyBackdrop(c2d) {
+  const base = c2d.createLinearGradient(0, 0, 0, LOGICAL_H);
+  base.addColorStop(0, '#141d2f');
+  base.addColorStop(0.45, '#0c1320');
+  base.addColorStop(1, '#05070d');
+  c2d.fillStyle = base;
+  c2d.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+
+  // Cold spotlight behind the title — the eye lands on the wordmark first.
+  const spot = c2d.createRadialGradient(LOGICAL_W / 2, 20, 30, LOGICAL_W / 2, 20, 660);
+  spot.addColorStop(0, 'rgba(56, 189, 248, 0.17)');
+  spot.addColorStop(0.55, 'rgba(56, 189, 248, 0.05)');
+  spot.addColorStop(1, 'rgba(56, 189, 248, 0)');
+  c2d.fillStyle = spot;
+  c2d.fillRect(0, 0, LOGICAL_W, 700);
+
+  // Vignette: pushes the corners back so the panels float above the screen.
+  const vig = c2d.createRadialGradient(LOGICAL_W / 2, 430, 340, LOGICAL_W / 2, 430, 980);
+  vig.addColorStop(0, 'rgba(0, 0, 0, 0)');
+  vig.addColorStop(1, 'rgba(0, 0, 0, 0.62)');
+  c2d.fillStyle = vig;
+  c2d.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+}
+
+/**
+ * The baked backdrop bitmap (`false` = no offscreen canvas available, paint it
+ * live). Three full-screen gradient fills per frame cost more than the whole
+ * rest of the lobby on a software rasteriser, and none of them ever change —
+ * so they are rendered ONCE and blitted afterwards.
+ */
+let lobbyBackdrop = null;
+
+function getLobbyBackdrop() {
+  if (lobbyBackdrop !== null) return lobbyBackdrop;
+  let cv = null;
+  if (typeof OffscreenCanvas !== 'undefined') cv = new OffscreenCanvas(LOGICAL_W, LOGICAL_H);
+  else if (typeof document !== 'undefined' && document.createElement) cv = document.createElement('canvas');
+  if (!cv) {
+    lobbyBackdrop = false;
+    return lobbyBackdrop;
+  }
+  cv.width = LOGICAL_W;
+  cv.height = LOGICAL_H;
+  const c2d = cv.getContext('2d');
+  if (!c2d) {
+    lobbyBackdrop = false;
+    return lobbyBackdrop;
+  }
+  paintLobbyBackdrop(c2d);
+  lobbyBackdrop = cv;
+  return lobbyBackdrop;
+}
+
+function drawLobbyBackground(ctx, t) {
+  const backdrop = getLobbyBackdrop();
+  if (backdrop) ctx.drawImage(backdrop, 0, 0, LOGICAL_W, LOGICAL_H);
+  else paintLobbyBackdrop(ctx);
 
   // Slowly drifting diagonal stripes — quiet motion, no distraction.
   ctx.save();
   ctx.globalAlpha = 0.05;
   ctx.strokeStyle = '#94a3b8';
-  ctx.lineWidth = 26;
-  const drift = (t * 12) % 120;
-  ctx.beginPath();
-  for (let x = -LOGICAL_H; x < LOGICAL_W + LOGICAL_H; x += 120) {
-    ctx.moveTo(x + drift, LOGICAL_H);
-    ctx.lineTo(x + drift + LOGICAL_H, 0);
+  ctx.lineWidth = 30;
+  const drift = (t * 12) % 150;
+  const stripes = getLobbyStripes();
+  if (stripes) {
+    ctx.translate(drift, 0);
+    ctx.stroke(stripes);
+  } else {
+    ctx.beginPath();
+    for (let x = -LOGICAL_H; x < LOGICAL_W + LOGICAL_H; x += 150) {
+      ctx.moveTo(x + drift, LOGICAL_H);
+      ctx.lineTo(x + drift + LOGICAL_H, 0);
+    }
+    ctx.stroke();
   }
-  ctx.stroke();
+  ctx.restore();
+
+  // Drifting dust — barely visible, but it stops the screen from looking dead.
+  ctx.save();
+  ctx.fillStyle = '#cbd5e1';
+  for (let i = 0; i < LOBBY_MOTES.length; i++) {
+    const m = LOBBY_MOTES[i];
+    const my = (m.y - t * m.sp) % LOGICAL_H;
+    ctx.globalAlpha = m.a;
+    ctx.beginPath();
+    ctx.arc(m.x, my < 0 ? my + LOGICAL_H : my, m.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.restore();
 }
 
-function drawLobbySlot(ctx, x, y, slot, index, taken, t) {
+/** The rocking tank preview + its hexagonal pad, in card-local coordinates. */
+function drawSlotPreview(ctx, col, index, t, alpha) {
   ctx.save();
-  ctx.textBaseline = 'middle';
+  ctx.globalAlpha = alpha;
+  ctx.translate(SLOT_W / 2, SLOT_TANK_Y);
 
-  const joined = !!slot;
-  const col = joined ? resolveColor(slot.colorId || slot.color) : FALLBACK_COLOR;
-  const ready = joined && slot.ready === true;
-  const lost = joined && slot.deviceLost === true;
-  const isBot = joined && slot.isBot === true;
+  // Dobogó a tank alatt, a játékos saját színében: a tank rajta ÁLL, tehát
+  // nincs az a kétértelműség, amit egy körberajzolt keret okozna (az ágyúcső
+  // 2,2-szeres méretben 76 px-re nyúlik a középpont fölé, egy zárt talp
+  // felső élét mindig átvágná). Alsó éle 150 + 26 = 176, azaz abszolút 334;
+  // a szín-súgó betűteteje 345 — a kettő nem ér össze.
+  ctx.beginPath();
+  ctx.ellipse(0, 28, 96, 26, 0, 0, Math.PI * 2);
+  ctx.fillStyle = hexToRgba(col.dark, 0.6);
+  ctx.fill();
+  ctx.strokeStyle = hexToRgba(col.main, 0.5);
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.ellipse(0, 28, 80, 20, 0, 0, Math.PI * 2);
+  ctx.strokeStyle = hexToRgba(col.light, 0.18);
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
 
-  // Card body. A slot whose controller vanished gets a red frame — otherwise
-  // nothing on screen tells the players which seat is holding up the lobby.
-  fillRoundRect(ctx, x, y, SLOT_W, SLOT_H, 16, joined ? 'rgba(13, 18, 28, 0.86)' : 'rgba(11, 15, 23, 0.55)');
-  if (joined) {
-    // A gép kerete indigó, nem zöld: a zöld azt jelenti, hogy egy EMBER
-    // nyomta meg a készt, és ezt egy pillantással meg kell tudni különböztetni.
-    let frame = ready ? '#22c55e' : hexToRgba(col.main, 0.7);
-    if (isBot) frame = 'rgba(129, 140, 248, 0.9)';
-    if (lost) frame = '#ef4444';
-    strokeRoundRect(ctx, x + 1.5, y + 1.5, SLOT_W - 3, SLOT_H - 3, 15,
-      frame, ready || lost ? 3.5 : 2.5);
-  } else {
-    ctx.save();
-    ctx.setLineDash([10, 8]);
-    strokeRoundRect(ctx, x + 1.5, y + 1.5, SLOT_W - 3, SLOT_H - 3, 15, 'rgba(148, 163, 184, 0.35)', 2);
-    ctx.restore();
-  }
-
-  // Header.
-  ctx.textAlign = 'left';
-  ctx.font = font(22, 800);
-  ctx.fillStyle = joined ? col.light : 'rgba(148, 163, 184, 0.6)';
-  ctx.fillText(isBot ? (slot.name || playerLabel(index)) : playerLabel(index), x + 20, y + 30);
-
-  if (!joined) {
-    // Empty slot: the join prompt.
-    ctx.textAlign = 'center';
-    const pulse = 0.6 + 0.4 * (0.5 + 0.5 * Math.sin(t * 3 + index));
-    ctx.font = font(22, 800);
-    ctx.fillStyle = `rgba(226, 232, 240, ${pulse})`;
-    ctx.fillText('Nyomj R2-t', x + SLOT_W / 2, y + SLOT_H / 2 - 24);
-    ctx.fillText('a csatlakozáshoz', x + SLOT_W / 2, y + SLOT_H / 2 + 6);
-    ctx.font = font(15, 600);
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.6)';
-    ctx.fillText('billentyűzeten: Space vagy Numpad 0', x + SLOT_W / 2, y + SLOT_H / 2 + 46);
-    // Ez a szabad hely gépi ellenféllel is feltölthető — enélkül egy
-    // kontrollerrel játszó ember azt hiheti, hogy nincs kivel játszania.
-    ctx.font = font(14, 700);
-    ctx.fillStyle = 'rgba(129, 140, 248, 0.85)';
-    ctx.fillText('vagy állíts be gépi ellenfelet lent', x + SLOT_W / 2, y + SLOT_H / 2 + 72);
-    ctx.restore();
-    return;
-  }
-
-  // Device label — a botnál a nehézségi szint áll a kontroller nevének helyén.
-  ctx.textAlign = 'right';
-  ctx.font = font(14, 600);
-  ctx.fillStyle = isBot ? 'rgba(165, 180, 252, 0.9)' : 'rgba(148, 163, 184, 0.75)';
-  ctx.fillText(isBot ? `GÉP · ${slot.deviceLabel || ''}` : deviceLabel(slot.deviceId),
-    x + SLOT_W - 20, y + 30);
-
-  // Tank preview, gently rocking.
   // Az előnézet 2,5-szeres méretben és y+128 középponttal a billegés szélén
   // 357-ig ért le, a szín-súgó betűtetői viszont 345-nél kezdődnek: a sötét
   // lánctalp-sarok átfutott a szövegen. 2,2-szeres méret és y+122 középpont
   // mellett a kettő elválik.
-  ctx.save();
-  ctx.translate(x + SLOT_W / 2, y + 122);
   ctx.scale(2.2, 2.2);
   const preview = {
     index,
@@ -2040,21 +2309,179 @@ function drawLobbySlot(ctx, x, y, slot, index, taken, t) {
   ctx.fill();
   drawTank(ctx, preview, t, false);
   ctx.restore();
+}
+
+function drawLobbySlot(ctx, x, y, slot, index, taken, t) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.textBaseline = 'middle';
+
+  const joined = !!slot;
+  const col = joined ? resolveColor(slot.colorId || slot.color) : FALLBACK_COLOR;
+  const ready = joined && slot.ready === true;
+  const lost = joined && slot.deviceLost === true;
+  const isBot = joined && slot.isBot === true;
+
+  // Card body. A slot whose controller vanished gets a red frame — otherwise
+  // nothing on screen tells the players which seat is holding up the lobby.
+  // A gép kerete indigó, nem zöld: a zöld azt jelenti, hogy egy EMBER
+  // nyomta meg a készt, és ezt egy pillantással meg kell tudni különböztetni.
+  let accent = hexToRgba(col.main, 0.85);
+  if (ready) accent = '#22c55e';
+  if (isBot) accent = 'rgba(129, 140, 248, 0.95)';
+  if (lost) accent = '#ef4444';
+
+  if (joined) {
+    lobbyPanel(ctx, 0, 0, SLOT_W, SLOT_H, SLOT_R, 'lob-card',
+      'rgba(24, 33, 50, 0.95)', 'rgba(8, 12, 20, 0.95)', null);
+  } else {
+    lobbyPanel(ctx, 0, 0, SLOT_W, SLOT_H, SLOT_R, 'lob-card-empty',
+      'rgba(15, 21, 33, 0.55)', 'rgba(7, 10, 17, 0.6)', null);
+  }
+
+  // Everything colour-tinted is clipped to the card, so a glow can never bleed.
+  ctx.save();
+  roundRectPath(ctx, 0, 0, SLOT_W, SLOT_H, SLOT_R);
+  ctx.clip();
+
+  if (joined) {
+    // Header wash + spotlight behind the tank, cached PER COLOUR (max eight
+    // gradients ever) — nothing is allocated per frame.
+    const wash = cachedGradient(ctx, `lob-wash-${col.id}`, (c) => {
+      const g = c.createLinearGradient(0, 0, 0, 96);
+      g.addColorStop(0, hexToRgba(col.main, 0.30));
+      g.addColorStop(1, hexToRgba(col.main, 0));
+      return g;
+    });
+    ctx.fillStyle = wash;
+    ctx.fillRect(0, 0, SLOT_W, 96);
+
+    const glow = cachedGradient(ctx, `lob-glow-${col.id}`, (c) => {
+      const g = c.createRadialGradient(SLOT_W / 2, SLOT_TANK_Y, 10, SLOT_W / 2, SLOT_TANK_Y, 118);
+      g.addColorStop(0, hexToRgba(col.main, 0.20));
+      g.addColorStop(1, hexToRgba(col.main, 0));
+      return g;
+    });
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, SLOT_W, 260);
+
+    // Az akcentus-csík MINDIG a játékos színe: az állapotot a keret és a
+    // jelvény mondja el, a szín pedig végig ugyanazt a széket jelenti.
+    ctx.fillStyle = hexToRgba(col.main, 0.95);
+    ctx.fillRect(0, 0, SLOT_W, 7);
+  }
+  ctx.restore();
+
+  if (joined) {
+    strokeRoundRect(ctx, 1.5, 1.5, SLOT_W - 3, SLOT_H - 3, SLOT_R - 1.5,
+      accent, ready || lost ? 3.5 : 2.5);
+    if (ready || isBot || lost) {
+      // Halo: a második, halvány keret messziről is elárulja az állapotot.
+      strokeRoundRect(ctx, -2.5, -2.5, SLOT_W + 5, SLOT_H + 5, SLOT_R + 2.5,
+        lost ? 'rgba(239, 68, 68, 0.28)'
+          : ready ? 'rgba(34, 197, 94, 0.28)' : 'rgba(129, 140, 248, 0.26)', 3);
+    }
+  } else {
+    ctx.save();
+    ctx.setLineDash([10, 8]);
+    strokeRoundRect(ctx, 1.5, 1.5, SLOT_W - 3, SLOT_H - 3, SLOT_R - 1.5, 'rgba(148, 163, 184, 0.35)', 2);
+    ctx.restore();
+  }
+
+  // ---- header: number chip + name (left), device label (right) ----
+  const name = joined && isBot ? (slot.name || playerLabel(index)) : playerLabel(index);
+  const device = !joined ? ''
+    : isBot ? `GÉP · ${slot.deviceLabel || ''}` : deviceLabel(slot.deviceId);
+
+  ctx.textAlign = 'right';
+  fitFont(ctx, device, 120, 14, 700);
+  const devW = device ? ctx.measureText(device).width : 0;
+  if (device) {
+    ctx.fillStyle = isBot ? 'rgba(165, 180, 252, 0.95)' : 'rgba(148, 163, 184, 0.8)';
+    ctx.fillText(device, SLOT_W - SLOT_PAD, SLOT_HEAD_Y);
+  }
+
+  // Number chip — the player's colour repeated as a solid block, so the seat
+  // and its tank are tied together even before anyone reads a word.
+  const chip = 26;
+  const chipY = SLOT_HEAD_Y - chip / 2;
+  fillRoundRect(ctx, SLOT_PAD, chipY, chip, chip, 8,
+    joined ? hexToRgba(col.main, 0.9) : 'rgba(148, 163, 184, 0.18)');
+  if (joined) strokeRoundRect(ctx, SLOT_PAD + 0.75, chipY + 0.75, chip - 1.5, chip - 1.5, 7.5, hexToRgba(col.light, 0.55), 1.5);
+  ctx.textAlign = 'center';
+  ctx.font = font(16, 900);
+  ctx.fillStyle = joined ? 'rgba(6, 10, 18, 0.92)' : 'rgba(148, 163, 184, 0.55)';
+  ctx.fillText(String(index + 1), SLOT_PAD + chip / 2, SLOT_HEAD_Y + 1);
+
+  ctx.textAlign = 'left';
+  const nameX = SLOT_PAD + chip + 10;
+  fitFont(ctx, name, SLOT_W - nameX - SLOT_PAD - devW - 12, 22, 800);
+  ctx.fillStyle = joined ? col.light : 'rgba(148, 163, 184, 0.6)';
+  ctx.fillText(name, nameX, SLOT_HEAD_Y);
+
+  // Hairline under the header groups it away from the preview. Középen KIHAGY
+  // egy 128 px-es rést: a tank ágyúcsöve 2,2-szeres méretben 75 px-re nyúlik a
+  // középpont fölé (lokális 47-ig), és nem szabad átvágnia egy vonalat.
+  ctx.beginPath();
+  ctx.moveTo(SLOT_PAD, 50);
+  ctx.lineTo(SLOT_W / 2 - 64, 50);
+  ctx.moveTo(SLOT_W / 2 + 64, 50);
+  ctx.lineTo(SLOT_W - SLOT_PAD, 50);
+  ctx.strokeStyle = joined ? hexToRgba(col.main, 0.32) : 'rgba(148, 163, 184, 0.14)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  if (!joined) {
+    // Empty slot: a ghost tank (this is what could sit here) + the join prompt.
+    drawSlotPreview(ctx, FALLBACK_COLOR, index, t, 0.07);
+
+    ctx.textAlign = 'center';
+    const pulse = 0.6 + 0.4 * (0.5 + 0.5 * Math.sin(t * 3 + index));
+    fitFont(ctx, 'Nyomj R2-t', SLOT_W - 40, 24, 800);
+    ctx.fillStyle = `rgba(226, 232, 240, ${pulse})`;
+    ctx.fillText('Nyomj R2-t', SLOT_W / 2, 200);
+    fitFont(ctx, 'a csatlakozáshoz', SLOT_W - 40, 24, 800);
+    ctx.fillText('a csatlakozáshoz', SLOT_W / 2, 230);
+
+    const kb = 'billentyűzeten: Space vagy Numpad 0';
+    fitFont(ctx, kb, SLOT_W - 32, 15, 600);
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.65)';
+    ctx.fillText(kb, SLOT_W / 2, 264);
+    // Ez a szabad hely gépi ellenféllel is feltölthető — enélkül egy
+    // kontrollerrel játszó ember azt hiheti, hogy nincs kivel játszania.
+    const botLine = 'vagy állíts be gépi ellenfelet lent';
+    fitFont(ctx, botLine, SLOT_W - 40, 14, 700);
+    fillRoundRect(ctx, SLOT_W / 2 - ctx.measureText(botLine).width / 2 - 12, 292 - 12,
+      ctx.measureText(botLine).width + 24, 24, 12, 'rgba(99, 102, 241, 0.16)');
+    ctx.fillStyle = 'rgba(165, 180, 252, 0.95)';
+    ctx.fillText(botLine, SLOT_W / 2, 292);
+    ctx.restore();
+    return;
+  }
+
+  // Tank preview, gently rocking.
+  drawSlotPreview(ctx, col, index, t, 1);
 
   // Colour picker strip: all eight palette colours, taken ones struck through.
   // A botnak nincs fókusza: a fehér kiemelő keret azt sugallná, hogy valaki
   // épp a színét szerkeszti — miközben fölötte az áll, hogy automatikus.
   const focus = isBot ? -1 : slotFocus(slot);
-  const barY = y + 212;
+  const barY = SLOT_BAR_Y;
+  const hint = isBot ? 'A gép színe automatikus' : slotColorHint(slot.deviceId);
   ctx.textAlign = 'center';
-  ctx.font = font(14, 700);
-  ctx.fillStyle = focus === 0 ? 'rgba(226,232,240,0.9)' : 'rgba(148,163,184,0.55)';
-  ctx.fillText(isBot ? 'A gép színe automatikus' : slotColorHint(slot.deviceId),
-    x + SLOT_W / 2, barY - 16);
+  fitFont(ctx, hint, SLOT_W - 40, 14, 700);
+  ctx.fillStyle = focus === 0 ? 'rgba(226,232,240,0.95)' : 'rgba(148,163,184,0.6)';
+  ctx.fillText(hint, SLOT_W / 2, barY - 17);
 
   const sw = 32;
   const pitch = 38;
-  const startX = x + SLOT_W / 2 - (pitch * PALETTE.length - (pitch - sw)) / 2;
+  const startX = SLOT_W / 2 - (pitch * PALETTE.length - (pitch - sw)) / 2;
+  // Recessed tray behind the swatches: the strip reads as one control.
+  fillRoundRect(ctx, startX - 9, barY - 4, pitch * PALETTE.length - (pitch - sw) + 18, 34, 10,
+    'rgba(2, 5, 11, 0.5)');
+  strokeRoundRect(ctx, startX - 8.5, barY - 3.5, pitch * PALETTE.length - (pitch - sw) + 17, 33, 9.5,
+    focus === 0 ? 'rgba(226, 232, 240, 0.28)' : 'rgba(148, 163, 184, 0.12)', 1);
+
   for (let i = 0; i < PALETTE.length; i++) {
     const p = PALETTE[i];
     const sx = startX + i * pitch;
@@ -2062,8 +2489,11 @@ function drawLobbySlot(ctx, x, y, slot, index, taken, t) {
     const owner = taken.get(p.id);
     const blocked = owner !== undefined && owner !== index;
 
-    ctx.globalAlpha = blocked ? 0.28 : 1;
+    ctx.globalAlpha = blocked ? 0.24 : 1;
     fillRoundRect(ctx, sx, barY, sw, 26, 6, p.main);
+    // Glossy top edge: makes the swatch look like a physical key.
+    fillRoundRect(ctx, sx + 2, barY + 2, sw - 4, 8, 4, 'rgba(255, 255, 255, 0.18)');
+    strokeRoundRect(ctx, sx + 0.5, barY + 0.5, sw - 1, 25, 5.5, 'rgba(2, 6, 12, 0.55)', 1);
     ctx.globalAlpha = 1;
 
     if (mine) {
@@ -2082,53 +2512,92 @@ function drawLobbySlot(ctx, x, y, slot, index, taken, t) {
   }
 
   // Colour name.
-  ctx.font = font(16, 700);
+  const colName = col.name || '';
+  fitFont(ctx, colName, SLOT_W - 60, 18, 800);
   ctx.fillStyle = col.light;
-  ctx.fillText(col.name || '', x + SLOT_W / 2, barY + 52);
+  ctx.fillText(colName, SLOT_W / 2, barY + 53);
 
-  // Ready state.
-  const badgeY = y + SLOT_H - 46;
+  // ---- status badge ----
+  const badgeY = SLOT_H - 46;
+  const bx = SLOT_PAD + 2;
+  const bw = SLOT_W - (SLOT_PAD + 2) * 2;
   if (lost) {
-    fillRoundRect(ctx, x + 20, badgeY, SLOT_W - 40, 34, 17, 'rgba(239, 68, 68, 0.18)');
-    strokeRoundRect(ctx, x + 20, badgeY, SLOT_W - 40, 34, 17, 'rgba(239, 68, 68, 0.8)', 2);
-    ctx.font = font(15, 700);
-    ctx.fillStyle = '#fca5a5';
-    ctx.fillText('Kontroller lecsatlakozott', x + SLOT_W / 2, badgeY + 11);
-    ctx.font = font(13, 600);
+    lobbyBadge(ctx, bx, badgeY, bw, 'lob-badge-lost', 'rgba(239, 68, 68, 0.30)', 'rgba(127, 29, 29, 0.30)', 'rgba(239, 68, 68, 0.85)');
+    fitFont(ctx, 'Kontroller lecsatlakozott', bw - 24, 15, 800);
+    ctx.fillStyle = '#fecaca';
+    ctx.fillText('Kontroller lecsatlakozott', SLOT_W / 2, badgeY + 11);
+    fitFont(ctx, 'a hely hamarosan felszabadul', bw - 24, 13, 600);
     ctx.fillStyle = 'rgba(254, 202, 202, 0.85)';
-    ctx.fillText('a hely hamarosan felszabadul', x + SLOT_W / 2, badgeY + 25);
+    ctx.fillText('a hely hamarosan felszabadul', SLOT_W / 2, badgeY + 25);
   } else if (isBot) {
     // A gép mindig kész — de más színnel, hogy egy pillantásra elváljon
     // attól a széktől, ahol tényleg ül valaki.
-    fillRoundRect(ctx, x + 20, badgeY, SLOT_W - 40, 34, 17, 'rgba(99, 102, 241, 0.18)');
-    strokeRoundRect(ctx, x + 20, badgeY, SLOT_W - 40, 34, 17, 'rgba(129, 140, 248, 0.9)', 2);
-    ctx.font = font(17, 800);
+    lobbyBadge(ctx, bx, badgeY, bw, 'lob-badge-bot', 'rgba(99, 102, 241, 0.34)', 'rgba(49, 46, 129, 0.28)', 'rgba(129, 140, 248, 0.95)');
+    drawBotGlyph(ctx, bx + 26, badgeY + 17, '#c7d2fe');
+    fitFont(ctx, 'GÉPI ELLENFÉL', bw - 76, 17, 900);
     ctx.fillStyle = '#c7d2fe';
-    ctx.fillText('GÉPI ELLENFÉL', x + SLOT_W / 2, badgeY + 18);
+    ctx.fillText('GÉPI ELLENFÉL', SLOT_W / 2 + 12, badgeY + 18);
   } else if (ready) {
-    fillRoundRect(ctx, x + 20, badgeY, SLOT_W - 40, 34, 17, 'rgba(34, 197, 94, 0.18)');
-    strokeRoundRect(ctx, x + 20, badgeY, SLOT_W - 40, 34, 17, '#22c55e', 2);
+    lobbyBadge(ctx, bx, badgeY, bw, 'lob-badge-ready', 'rgba(34, 197, 94, 0.34)', 'rgba(20, 83, 45, 0.30)', '#22c55e');
     // Check mark.
     ctx.beginPath();
-    ctx.moveTo(x + 46, badgeY + 17);
-    ctx.lineTo(x + 54, badgeY + 25);
-    ctx.lineTo(x + 70, badgeY + 9);
-    ctx.strokeStyle = '#22c55e';
+    ctx.moveTo(bx + 20, badgeY + 17);
+    ctx.lineTo(bx + 28, badgeY + 25);
+    ctx.lineTo(bx + 44, badgeY + 9);
+    ctx.strokeStyle = '#4ade80';
     ctx.lineWidth = 4;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.stroke();
-    ctx.font = font(19, 800);
-    ctx.fillStyle = '#86efac';
-    ctx.fillText('KÉSZ', x + SLOT_W / 2 + 16, badgeY + 18);
+    fitFont(ctx, 'KÉSZ', bw - 90, 20, 900);
+    ctx.fillStyle = '#bbf7d0';
+    ctx.fillText('KÉSZ', SLOT_W / 2 + 16, badgeY + 18);
   } else {
-    fillRoundRect(ctx, x + 20, badgeY, SLOT_W - 40, 34, 17, 'rgba(148, 163, 184, 0.12)');
-    const hint = slotActionHint(slot.deviceId);
-    fitFont(ctx, hint, SLOT_W - 56, 16, 700);
-    ctx.fillStyle = 'rgba(226, 232, 240, 0.8)';
-    ctx.fillText(hint, x + SLOT_W / 2, badgeY + 18);
+    lobbyBadge(ctx, bx, badgeY, bw, 'lob-badge-idle', 'rgba(148, 163, 184, 0.20)', 'rgba(30, 41, 59, 0.28)', 'rgba(148, 163, 184, 0.35)');
+    const actionHint = slotActionHint(slot.deviceId);
+    fitFont(ctx, actionHint, bw - 28, 16, 700);
+    ctx.fillStyle = 'rgba(226, 232, 240, 0.92)';
+    ctx.fillText(actionHint, SLOT_W / 2, badgeY + 18);
   }
 
+  ctx.restore();
+}
+
+/** The pill behind a slot's status line: gradient body + coloured ring. */
+function lobbyBadge(ctx, x, y, w, key, top, bottom, ring) {
+  const g = cachedGradient(ctx, key, (c) => {
+    const grad = c.createLinearGradient(0, y, 0, y + 34);
+    grad.addColorStop(0, top);
+    grad.addColorStop(1, bottom);
+    return grad;
+  });
+  roundRectPath(ctx, x, y, w, 34, 17);
+  ctx.fillStyle = g;
+  ctx.fill();
+  strokeRoundRect(ctx, x + 1, y + 1, w - 2, 32, 16, ring, 2);
+}
+
+/** Tiny robot head — marks the bot badge without relying on an emoji font. */
+function drawBotGlyph(ctx, cx, cy, color) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 2;
+  roundRectPath(ctx, cx - 8, cy - 6, 16, 13, 4);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx - 3.5, cy, 1.7, 0, Math.PI * 2);
+  ctx.arc(cx + 3.5, cy, 1.7, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - 6);
+  ctx.lineTo(cx, cy - 10);
+  ctx.lineWidth = 1.8;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx, cy - 11, 1.6, 0, Math.PI * 2);
+  ctx.fill();
   ctx.restore();
 }
 
@@ -2143,59 +2612,84 @@ function drawLobbySettings(ctx, settings, slots, lobbyRows) {
       { label: 'Cél', value: `${settings.pointsToWin ?? CONFIG.match.pointsToWin} pont` },
     ];
 
-  /** A sor eleji sáv, ahova a fókusz-pöttyök kerülnek (4 pötty + hézag). */
-  const LABEL_INDENT = 72;
-
-  const boxW = 720;
-  const boxX = (LOGICAL_W - boxW) / 2;
-  const boxY = 506;
-  const rowH = 38;
+  const boxX = SET_X;
+  const boxY = SET_Y;
+  const boxW = SET_W;
+  const rowH = SET_ROW_H;
   const boxH = rows.length * rowH + 18;
 
   ctx.save();
   ctx.textBaseline = 'middle';
-  fillRoundRect(ctx, boxX, boxY, boxW, boxH, 14, 'rgba(11, 16, 25, 0.78)');
-  strokeRoundRect(ctx, boxX + 1, boxY + 1, boxW - 2, boxH - 2, 13, 'rgba(148, 163, 184, 0.28)', 1.5);
+  lobbyPanel(ctx, boxX, boxY, boxW, boxH, 16, 'lob-settings',
+    'rgba(22, 30, 46, 0.92)', 'rgba(8, 12, 20, 0.94)', 'rgba(148, 163, 184, 0.30)');
 
   for (let i = 0; i < rows.length; i++) {
     const ry = boxY + 9 + i * rowH;
+    const cy = ry + rowH / 2 - 2;
     // Settings rows are focus index 1..n; collect the players sitting on them.
     const focusedBy = [];
     for (let s = 0; s < slots.length; s++) {
       const slot = slots[s];
       if (slot && slotFocus(slot) === i + 1) focusedBy.push(resolveColor(slot.colorId || slot.color));
     }
-    if (focusedBy.length) {
-      fillRoundRect(ctx, boxX + 8, ry + 2, boxW - 16, rowH - 6, 10, 'rgba(255, 255, 255, 0.07)');
+    const hot = focusedBy.length > 0;
+
+    if (hot) {
+      fillRoundRect(ctx, boxX + 8, ry + 2, boxW - 16, rowH - 6, 10, 'rgba(255, 255, 255, 0.09)');
+      strokeRoundRect(ctx, boxX + 8.5, ry + 2.5, boxW - 17, rowH - 7, 9.5,
+        hexToRgba(focusedBy[0].main, 0.55), 1.5);
+      // Left accent bar in the colour of the first player editing this row.
+      fillRoundRect(ctx, boxX + 8, ry + 6, 4, rowH - 14, 2, focusedBy[0].main);
+    } else if (i % 2 === 1) {
+      fillRoundRect(ctx, boxX + 8, ry + 2, boxW - 16, rowH - 6, 10, 'rgba(255, 255, 255, 0.025)');
     }
 
-    ctx.textAlign = 'left';
-    ctx.font = font(20, 700);
-    ctx.fillStyle = focusedBy.length ? '#e2e8f0' : 'rgba(203, 213, 225, 0.75)';
-    // A címke a pöttyöknek fenntartott sáv UTÁN kezdődik. Négy játékos
-    // pöttyei a 493. pixelig érnek; a régi `boxX + 28` (=468) kezdet miatt
-    // három-négy embernél a "Gépi ellenfelek" első betűit takarták el.
-    ctx.fillText(rows[i].label, boxX + LABEL_INDENT, ry + rowH / 2 - 2);
+    // ---- value stepper on the right: ‹ value › inside its own chip ----
+    ctx.textAlign = 'center';
+    const value = String(rows[i].value);
+    fitFont(ctx, value, 240, 21, 800);
+    const valW = ctx.measureText(value).width;
+    const chipW = valW + 74;
+    const chipX = boxX + boxW - 16 - chipW;
+    fillRoundRect(ctx, chipX, ry + 4, chipW, rowH - 10, 9,
+      hot ? 'rgba(2, 6, 12, 0.5)' : 'rgba(2, 6, 12, 0.32)');
+    strokeRoundRect(ctx, chipX + 0.5, ry + 4.5, chipW - 1, rowH - 11, 8.5,
+      hot ? 'rgba(226, 232, 240, 0.30)' : 'rgba(148, 163, 184, 0.16)', 1);
+    ctx.fillStyle = hot ? '#f8fafc' : 'rgba(226, 232, 240, 0.9)';
+    ctx.fillText(value, chipX + chipW / 2, cy);
+    const arrow = hot ? 'rgba(248, 250, 252, 0.95)' : 'rgba(148, 163, 184, 0.6)';
+    chevron(ctx, chipX + 18, cy, -1, 6, arrow, 2.6);
+    chevron(ctx, chipX + chipW - 18, cy, 1, 6, arrow, 2.6);
 
-    ctx.textAlign = 'right';
-    ctx.font = font(21, 800);
-    ctx.fillStyle = '#f8fafc';
-    ctx.fillText(`‹  ${rows[i].value}  ›`, boxX + boxW - 28, ry + rowH / 2 - 2);
+    // ---- label on the left ----
+    ctx.textAlign = 'left';
+    // A címke a pöttyöknek fenntartott sáv UTÁN kezdődik. Négy játékos
+    // pöttyei a boxX + 70 pixelig érnek; a régi `boxX + 28` kezdet miatt
+    // három-négy embernél a "Gépi ellenfelek" első betűit takarták el.
+    fitFont(ctx, rows[i].label, chipX - (boxX + SET_LABEL_INDENT) - 16, 20, 700);
+    ctx.fillStyle = hot ? '#f1f5f9' : 'rgba(203, 213, 225, 0.75)';
+    ctx.fillText(rows[i].label, boxX + SET_LABEL_INDENT, cy);
 
     // Colour dots of the players currently editing this row — a saját sávjukban.
     for (let k = 0; k < focusedBy.length; k++) {
+      const dx = boxX + SET_DOT_X + k * SET_DOT_PITCH;
       ctx.beginPath();
-      ctx.arc(boxX + 16 + k * 11, ry + rowH / 2 - 2, 4, 0, Math.PI * 2);
+      ctx.arc(dx, cy, SET_DOT_R, 0, Math.PI * 2);
       ctx.fillStyle = focusedBy[k].main;
       ctx.fill();
+      ctx.beginPath();
+      ctx.arc(dx, cy, SET_DOT_R, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(2, 6, 12, 0.55)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
     }
   }
 
   ctx.textAlign = 'center';
-  ctx.font = font(13, 600);
-  ctx.fillStyle = 'rgba(148, 163, 184, 0.65)';
-  ctx.fillText('D-pad fel/le — sorváltás (saját szín ↔ közös beállítások), bal/jobb — érték',
-    LOGICAL_W / 2, boxY + boxH + 13);
+  const help = 'D-pad fel/le — sorváltás (saját szín ↔ közös beállítások), bal/jobb — érték';
+  fitFont(ctx, help, boxW + 120, 13, 600);
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.7)';
+  ctx.fillText(help, LOGICAL_W / 2, boxY + boxH + 13);
   ctx.restore();
 }
 
@@ -2206,15 +2700,19 @@ function pendingNames(slots) {
   return `${names.slice(0, -1).join(', ')} és ${names[names.length - 1]}`;
 }
 
+/**
+ * Footer. Fixed bands, measured so nothing can collide:
+ *   738..792  start prompt plate (one or two lines INSIDE it)
+ *   796..836  gamepad warning band
+ *   841..863  control legend key caps
+ *   869..883  keyboard scheme A
+ *   885..899  keyboard scheme B
+ */
 function drawLobbyFooter(ctx, lobby, canStart, t) {
   ctx.save();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
-  // Start prompt. The message must say what is actually missing: a flat
-  // "at least 2 ready players" while three players stand ready tells a lie and
-  // hides the seat that is really holding up the match.
-  const py = 766;
   const readyCount = Number.isFinite(lobby.readyCount) ? lobby.readyCount : 0;
 
   // "Press a button" hint when no gamepad has been seen yet. Chrome only
@@ -2226,24 +2724,18 @@ function drawLobbyFooter(ctx, lobby, canStart, t) {
 
   const pending = noPads || !Array.isArray(lobby.pendingSlots) ? [] : lobby.pendingSlots;
 
+  // Start prompt. The message must say what is actually missing: a flat
+  // "at least 2 ready players" while three players stand ready tells a lie and
+  // hides the seat that is really holding up the match.
+  let main;
+  let sub = '';
   if (canStart) {
-    const pulse = 0.65 + 0.35 * (0.5 + 0.5 * Math.sin(t * 4));
-    fillRoundRect(ctx, LOGICAL_W / 2 - 190, py - 25, 380, 50, 25, `rgba(34, 197, 94, ${0.16 + 0.1 * pulse})`);
-    strokeRoundRect(ctx, LOGICAL_W / 2 - 190, py - 25, 380, 50, 25, `rgba(34, 197, 94, ${pulse})`, 2.5);
-    ctx.font = font(24, 900);
-    ctx.fillStyle = `rgba(240, 253, 244, ${pulse})`;
-    ctx.fillText('Options / Enter — indítás', LOGICAL_W / 2, py);
-
+    main = 'Options / Enter — indítás';
     if (pending.length) {
-      ctx.font = font(15, 600);
-      ctx.fillStyle = 'rgba(234, 179, 8, 0.85)';
       const verb = pending.length > 1 ? 'kimaradnak' : 'kimarad';
-      ctx.fillText(`${pendingNames(pending)} még nem kész — így ${verb} a meccsből`,
-        LOGICAL_W / 2, py + 34);
+      sub = `${pendingNames(pending)} még nem kész — így ${verb} a meccsből`;
     }
   } else {
-    ctx.font = font(20, 700);
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.7)';
     // A hiányzó feltételt mondjuk ki, nem egy általánosat: egy kontrollerrel
     // ülő játékosnak az a használható infó, hogy gépi ellenfelet is kaphat.
     const humans = Number.isFinite(lobby.readyHumans) ? lobby.readyHumans : readyCount;
@@ -2252,96 +2744,182 @@ function drawLobbyFooter(ctx, lobby, canStart, t) {
     // ellenfelet hiába javasolnánk, ha nincs is szabad szék neki.
     const joined = Number.isFinite(lobby.humanCount) ? lobby.humanCount : humans;
     const notReady = Math.max(0, joined - humans);
-    let text;
     if (humans < 1) {
-      text = 'Legalább egy embernek készen kell állnia';
+      main = 'Legalább egy embernek készen kell állnia';
     } else if (notReady > 0) {
-      text = notReady === 1
+      main = notReady === 1
         ? 'Még egy játékosnak meg kell nyomnia a Keresztet'
         : `Még ${notReady} játékosnak meg kell nyomnia a Keresztet`;
     } else {
-      text = 'Állíts be gépi ellenfelet, vagy várj még egy játékosra';
+      main = 'Állíts be gépi ellenfelet, vagy várj még egy játékosra';
     }
-    ctx.fillText(text, LOGICAL_W / 2, py);
     // Naming names is only useful once somebody IS ready — with an empty lobby
     // it would just repeat all four slots back at the players.
-    if (pending.length && readyCount > 0) {
-      ctx.font = font(15, 600);
-      ctx.fillStyle = 'rgba(148, 163, 184, 0.6)';
-      ctx.fillText(`${pendingNames(pending)} — Kereszt / Enter: kész`,
-        LOGICAL_W / 2, py + 30);
-    }
+    if (pending.length && readyCount > 0) sub = `${pendingNames(pending)} — Kereszt / Enter: kész`;
+  }
+
+  // A két sor MINDIG a prompt tábláján belülre kerül (738..792). Korábban az
+  // alsó sor 800-nál állt, vagyis belelógott a kontroller-figyelmeztetés
+  // sávjába (796..836) — együtt is előfordulhatnak, ha billentyűzettel indul
+  // a meccs egy nem HTTPS-en kiszolgált oldalon.
+  const mainSize = canStart ? 24 : 20;
+  fitFont(ctx, main, 1080, mainSize, canStart ? 900 : 800);
+  const mainW = ctx.measureText(main).width;
+  let subW = 0;
+  if (sub) {
+    fitFont(ctx, sub, 1080, 15, 600);
+    subW = ctx.measureText(sub).width;
+  }
+  const plateW = clamp(Math.max(mainW, subW) + 76, 400, 1180);
+  const plateX = (LOGICAL_W - plateW) / 2;
+
+  const pulse = 0.65 + 0.35 * (0.5 + 0.5 * Math.sin(t * 4));
+  if (canStart) {
+    const g = cachedGradient(ctx, 'lob-start', (c) => {
+      const grad = c.createLinearGradient(0, FOOT_PROMPT_Y, 0, FOOT_PROMPT_Y + FOOT_PROMPT_H);
+      grad.addColorStop(0, 'rgba(34, 197, 94, 0.34)');
+      grad.addColorStop(1, 'rgba(21, 128, 61, 0.20)');
+      return grad;
+    });
+    ctx.fillStyle = 'rgba(34, 197, 94, 0.10)';
+    roundRectPath(ctx, plateX - 6, FOOT_PROMPT_Y - 6, plateW + 12, FOOT_PROMPT_H + 12, (FOOT_PROMPT_H + 12) / 2);
+    ctx.fill();
+    roundRectPath(ctx, plateX, FOOT_PROMPT_Y, plateW, FOOT_PROMPT_H, FOOT_PROMPT_H / 2);
+    ctx.fillStyle = g;
+    ctx.fill();
+    strokeRoundRect(ctx, plateX + 1.25, FOOT_PROMPT_Y + 1.25, plateW - 2.5, FOOT_PROMPT_H - 2.5,
+      FOOT_PROMPT_H / 2 - 1.25, `rgba(74, 222, 128, ${pulse})`, 2.5);
+  } else {
+    roundRectPath(ctx, plateX, FOOT_PROMPT_Y, plateW, FOOT_PROMPT_H, FOOT_PROMPT_H / 2);
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.55)';
+    ctx.fill();
+    strokeRoundRect(ctx, plateX + 1, FOOT_PROMPT_Y + 1, plateW - 2, FOOT_PROMPT_H - 2,
+      FOOT_PROMPT_H / 2 - 1, 'rgba(148, 163, 184, 0.22)', 1.5);
+  }
+
+  const mainY = sub ? 755 : 765;
+  fitFont(ctx, main, plateW - 48, mainSize, canStart ? 900 : 800);
+  ctx.fillStyle = canStart ? `rgba(240, 253, 244, ${0.75 + 0.25 * pulse})` : 'rgba(203, 213, 225, 0.9)';
+  ctx.fillText(main, LOGICAL_W / 2, mainY);
+  if (sub) {
+    fitFont(ctx, sub, plateW - 48, 15, 600);
+    ctx.fillStyle = canStart ? 'rgba(253, 224, 71, 0.9)' : 'rgba(148, 163, 184, 0.75)';
+    ctx.fillText(sub, LOGICAL_W / 2, 781);
   }
 
   // A blocked Gamepad API outranks the "press a button" nudge: no amount of
   // button pressing will help, and the message has to name the actual fix.
-  // A sávok magassága és helye szűk: fölöttük az indítás-pirula alja 792-nél,
-  // alattuk a vezérlés-legenda betűtetői 841-nél vannak. 796..836 az a doboz,
-  // ami mindkettőt elkerüli — ezért y=816, magasság 40, MINDKÉT sávnál.
-  const BAND_Y = 816;
-  const BAND_H = 40;
+  // A sávok magassága és helye szűk: fölöttük az indítás-tábla alja 792-nél,
+  // alattuk a vezérlés-legenda kupakjainak teteje 841-nél van. 796..836 az a
+  // doboz, ami mindkettőt elkerüli — ezért y=816, magasság 40, MINDKÉT sávnál.
   const support = lobby.gamepadSupport;
   if (support === 'insecure' || support === 'unsupported') {
     const insecure = support === 'insecure';
-    const w = 940;
-    fillRoundRect(ctx, LOGICAL_W / 2 - w / 2, BAND_Y - BAND_H / 2, w, BAND_H, BAND_H / 2, 'rgba(239, 68, 68, 0.16)');
-    strokeRoundRect(ctx, LOGICAL_W / 2 - w / 2, BAND_Y - BAND_H / 2, w, BAND_H, BAND_H / 2, 'rgba(248, 113, 113, 0.75)', 2);
-    ctx.fillStyle = '#fecaca';
     const msg = insecure
       ? 'A böngésző letiltotta a kontrollereket, mert az oldal nem HTTPS-en fut — addig billentyűzettel játszhattok.'
       : 'Ez a böngésző nem támogatja a kontrollereket — billentyűzettel viszont játszhattok.';
-    fitFont(ctx, msg, w - 48, 19, 800);
-    ctx.fillText(msg, LOGICAL_W / 2, BAND_Y);
+    lobbyBand(ctx, 980, 'rgba(239, 68, 68, 0.22)', 'rgba(127, 29, 29, 0.22)',
+      'rgba(248, 113, 113, 0.85)', '#fecaca', msg, 19, 800, t);
   } else if (noPads) {
     // Ez a lobbi ALAPÁLLAPOTA betöltéskor, tehát a legtöbbet látott képernyő:
-    // a szöveg 19-es mérettel ~738 px, ezért a pirula 800 széles, és a
-    // `fitFont` külön is garantálja, hogy soha ne lógjon ki a keretéből.
-    const w = 800;
-    fillRoundRect(ctx, LOGICAL_W / 2 - w / 2, BAND_Y - BAND_H / 2, w, BAND_H, BAND_H / 2, 'rgba(234, 179, 8, 0.14)');
-    strokeRoundRect(ctx, LOGICAL_W / 2 - w / 2, BAND_Y - BAND_H / 2, w, BAND_H, BAND_H / 2, 'rgba(234, 179, 8, 0.6)', 2);
-    ctx.fillStyle = '#fde047';
+    // a `fitFont` garantálja, hogy a szöveg soha ne lógjon ki a keretéből.
     const msg = 'Nyomj meg egy gombot a kontrolleren… (vagy játssz billentyűzettel)';
-    fitFont(ctx, msg, w - 40, 19, 700);
-    ctx.fillText(msg, LOGICAL_W / 2, BAND_Y);
+    lobbyBand(ctx, 860, 'rgba(234, 179, 8, 0.20)', 'rgba(113, 63, 18, 0.20)',
+      'rgba(250, 204, 21, 0.7)', '#fde047', msg, 19, 700, t);
   }
 
-  // Control legend.
-  const hints = [
-    'Jobb stick — mozgás',
-    'R2 — lövés',
-    'Bal stick — külön célzás (opcionális)',
-    'Options — indítás',
-    'F — teljes képernyő, M — némítás',
-  ];
-  const hy = 852;
-  ctx.font = font(17, 700);
-  const widths = hints.map((h) => ctx.measureText(h).width);
-  const sep = 34;
-  let total = 0;
-  for (let i = 0; i < widths.length; i++) total += widths[i];
-  total += sep * (hints.length - 1);
-  let hx = (LOGICAL_W - total) / 2;
-  ctx.textAlign = 'left';
-  for (let i = 0; i < hints.length; i++) {
-    ctx.fillStyle = 'rgba(226, 232, 240, 0.85)';
-    ctx.fillText(hints[i], hx, hy);
-    hx += widths[i];
-    if (i < hints.length - 1) {
-      ctx.fillStyle = 'rgba(148, 163, 184, 0.4)';
-      ctx.fillText('·', hx + sep / 2 - 2, hy);
-      hx += sep;
-    }
-  }
+  drawLobbyLegend(ctx);
 
   // Keyboard legend: movement AND the menu keys, because a keyboard player has
   // no Cross / Circle / Options to press.
   ctx.textAlign = 'center';
-  ctx.fillStyle = 'rgba(148, 163, 184, 0.55)';
   const kbA = 'Billentyűzet A: WASD + nyilak + Space   ·   kész/indítás: Enter, kilépés: Esc, szín: Q / E';
   const kbB = 'Billentyűzet B: IJKL + Numpad 8/4/5/6 + Numpad 0   ·   kész/indítás: Numpad Enter, kilépés: Numpad ., szín: U / O';
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.6)';
   fitFont(ctx, kbA, LOGICAL_W - 60, 14, 600);
   ctx.fillText(kbA, LOGICAL_W / 2, 876);
   fitFont(ctx, kbB, LOGICAL_W - 60, 14, 600);
   ctx.fillText(kbB, LOGICAL_W / 2, 892);
   ctx.restore();
+}
+
+/** One full-width warning band at the fixed 796..836 slot, with an icon. */
+function lobbyBand(ctx, w, top, bottom, ring, textColor, msg, size, weight, t) {
+  const x = (LOGICAL_W - w) / 2;
+  const y = FOOT_BAND_Y - FOOT_BAND_H / 2;
+  const g = cachedGradient(ctx, `lob-band-${ring}`, (c) => {
+    const grad = c.createLinearGradient(0, y, 0, y + FOOT_BAND_H);
+    grad.addColorStop(0, top);
+    grad.addColorStop(1, bottom);
+    return grad;
+  });
+  roundRectPath(ctx, x, y, w, FOOT_BAND_H, FOOT_BAND_H / 2);
+  ctx.fillStyle = g;
+  ctx.fill();
+  const blink = 0.7 + 0.3 * (0.5 + 0.5 * Math.sin(t * 3));
+  ctx.globalAlpha = blink;
+  strokeRoundRect(ctx, x + 1, y + 1, w - 2, FOOT_BAND_H - 2, FOOT_BAND_H / 2 - 1, ring, 2);
+  ctx.globalAlpha = 1;
+
+  warningGlyph(ctx, x + 34, FOOT_BAND_Y, 20, textColor);
+  // A szöveg a jel utáni sávban van középre zárva, hogy sose érjen a jelhez.
+  const textL = x + 58;
+  const textR = x + w - 24;
+  ctx.textAlign = 'center';
+  fitFont(ctx, msg, textR - textL, size, weight);
+  ctx.fillStyle = textColor;
+  ctx.fillText(msg, (textL + textR) / 2, FOOT_BAND_Y);
+}
+
+/**
+ * Control legend as key caps: the button name sits in a chip, the meaning next
+ * to it. Ink box is 841..863 — the keyboard lines start at 869.
+ */
+function drawLobbyLegend(ctx) {
+  const maxW = LOGICAL_W - 60;
+  let size = 16;
+  let items = null;
+  let total = 0;
+  let sep = 0;
+  for (;;) {
+    const padX = Math.round(size * 0.55);
+    const gap = Math.round(size * 0.5);
+    sep = Math.round(size * 1.5);
+    items = [];
+    total = 0;
+    for (let i = 0; i < LOBBY_HINTS.length; i++) {
+      const [k, l] = LOBBY_HINTS[i];
+      ctx.font = font(size, 800);
+      const kw = ctx.measureText(k).width;
+      ctx.font = font(size, 600);
+      const lw = ctx.measureText(l).width;
+      const w = kw + padX * 2 + gap + lw;
+      items.push({ k, l, kw, lw, w, padX, gap });
+      total += w;
+    }
+    total += sep * (LOBBY_HINTS.length - 1);
+    if (total <= maxW || size <= 11) break;
+    size -= 1;
+  }
+
+  const chipH = size + 6;
+  const cy = FOOT_LEGEND_Y;
+  let x = (LOGICAL_W - total) / 2;
+  ctx.textBaseline = 'middle';
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    fillRoundRect(ctx, x, cy - chipH / 2, it.kw + it.padX * 2, chipH, 6, 'rgba(148, 163, 184, 0.18)');
+    strokeRoundRect(ctx, x + 0.5, cy - chipH / 2 + 0.5, it.kw + it.padX * 2 - 1, chipH - 1, 5.5,
+      'rgba(226, 232, 240, 0.24)', 1);
+    ctx.textAlign = 'left';
+    ctx.font = font(size, 800);
+    ctx.fillStyle = '#f1f5f9';
+    ctx.fillText(it.k, x + it.padX, cy + 0.5);
+    x += it.kw + it.padX * 2 + it.gap;
+    ctx.font = font(size, 600);
+    ctx.fillStyle = 'rgba(203, 213, 225, 0.85)';
+    ctx.fillText(it.l, x, cy + 0.5);
+    x += it.lw;
+    if (i < items.length - 1) x += sep;
+  }
 }
