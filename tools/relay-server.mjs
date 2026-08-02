@@ -176,9 +176,22 @@ function announce(room, type, id) {
 // Végpontok
 // ---------------------------------------------------------------------------
 
+/**
+ * A kérés útvonala az `/api/`-tól kezdve.
+ *
+ * Megosztott tárhelyen (cPanel + Passenger) az alkalmazás nem a gyökéren ül,
+ * hanem egy előtag alatt — pl. `https://pelda.hu/relay/api/room`. A kiszolgáló
+ * a TELJES útvonalat kapja meg, ezért az előtagot itt vágjuk le, és nem kell
+ * sehol beállítani, hova telepítették.
+ */
+function routePath(pathname) {
+  const i = pathname.indexOf('/api/');
+  return i >= 0 ? pathname.slice(i) : pathname;
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-  const path = url.pathname;
+  const path = routePath(url.pathname);
 
   if (req.method === 'OPTIONS') {
     cors(res);

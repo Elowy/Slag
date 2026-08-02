@@ -389,6 +389,53 @@ beállítani: alapból a saját címét használja.
 > **HTTPS-oldal csak HTTPS-relayt érhet el.** Ha a játék `https://`-en van, a
 > relaynek is annak kell lennie, különben a böngésző letiltja a kapcsolatot.
 
+### Megosztott tárhelyen (cPanel, „Setup Node.js App”)
+
+**`npm install` NEM kell** — a projektnek nincs egyetlen függősége sem. Ha
+mégis lefuttatod, a cPanel `activate` szkriptje `--prefix`-szel a virtuális
+környezetre irányítja az npm-et, és ezt a hibát kapod:
+
+```
+npm error path /home/<user>/nodevenv/<domain>/24/lib/package.json
+npm error enoent Could not read package.json
+```
+
+Ez nem a te hibád és nem is baj: egyszerűen hagyd ki ezt a lépést.
+
+**1. A játék (statikus fájlok).** Töltsd fel a webgyökérbe (a domain
+document rootjába) ezeket: `index.html`, `styles.css` és a teljes `src/`
+mappa. Ennyitől a játék már megy — egy gépen, helyben.
+
+**2. A relay (csak az online szobákhoz).** A `tools/` mappát és az `app.js`-t
+tedd a webgyökéren **kívülre**, pl. `~/slag-relay/`-be, hogy ne lehessen
+böngészőből letölteni. Utána a cPanelben:
+
+| Mező | Érték |
+|---|---|
+| Application root | `slag-relay` |
+| Application URL | `tank.luiz-tech.hu/relay` |
+| Application startup file | `app.js` |
+| Node.js version | 18 vagy újabb |
+
+A portot a Passenger adja, a relay magától felveszi. Az sem gond, hogy nem a
+gyökéren ül: az útvonal-előtagot (`/relay`) a kiszolgáló levágja.
+
+**3. Mondd meg a játéknak, hol a relay.** Az `index.html`-be, a modul
+betöltése **elé**:
+
+```html
+<script>window.SLAG_RELAY = 'https://tank.luiz-tech.hu/relay';</script>
+```
+
+Ellenőrzés: a `https://tank.luiz-tech.hu/relay/api/health` címnek
+`{"ok":true,"rooms":0}`-t kell adnia. Ha ezt látod, kész vagy.
+
+> **Ha a szoba létrejön, de semmi nem frissül:** a tárhely webkiszolgálója
+> puffereli a folyamatos választ. A relay ez ellen küldi az
+> `X-Accel-Buffering: no` fejlécet, de nem minden beállítás veszi figyelembe.
+> Ilyenkor a tárhely támogatásától kell kérni, hogy a `/relay` útvonalon
+> kapcsolják ki a pufferelést (proxy buffering).
+
 ### Hogyan játszotok
 
 1. Egyvalaki megnyomja az **Online szoba → Szoba nyitása** gombot.
