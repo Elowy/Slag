@@ -2047,11 +2047,10 @@ function warningGlyph(ctx, cx, cy, size, color) {
  * Draws in the CURRENT user space, so callers may translate first.
  */
 function lobbyPanel(ctx, x, y, w, h, r, key, top, bottom, border) {
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.34)';
-  roundRectPath(ctx, x + 2, y + 5, w - 4, h, r);
-  ctx.fill();
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
-  roundRectPath(ctx, x + 5, y + 2, w - 10, h, r);
+  // Egyetlen, eltolt árnyék: a lobbi minden képkockán újrarajzol, és egy
+  // teljes panelnyi extra alfás kitöltés a legdrágább dolog a képernyőn.
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.42)';
+  roundRectPath(ctx, x + 3, y + 6, w - 6, h - 4, r);
   ctx.fill();
 
   const g = cachedGradient(ctx, key, (c) => {
@@ -2065,16 +2064,14 @@ function lobbyPanel(ctx, x, y, w, h, r, key, top, bottom, border) {
   ctx.fill();
 
   // Inner bevel: a bright hairline on the top edge reads as "lit from above".
-  ctx.save();
-  roundRectPath(ctx, x, y, w, h, r);
-  ctx.clip();
+  // Vágás nélkül: a vonal a lekerekítés sugarának 0,8-szeresétől indul, tehát
+  // biztosan a panel testén belül marad.
   ctx.beginPath();
-  ctx.moveTo(x + r * 0.6, y + 1);
-  ctx.lineTo(x + w - r * 0.6, y + 1);
+  ctx.moveTo(x + r * 0.8, y + 1);
+  ctx.lineTo(x + w - r * 0.8, y + 1);
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.10)';
   ctx.lineWidth = 2;
   ctx.stroke();
-  ctx.restore();
 
   if (border) strokeRoundRect(ctx, x + 0.75, y + 0.75, w - 1.5, h - 1.5, r - 0.75, border, 1.5);
 }
@@ -2096,7 +2093,7 @@ export function drawLobby(ctxOrWrapper, lobby, t) {
   const canStart = lobby.canStart === true;
 
   beginFrame(ctx);
-  drawLobbyBackground(ctx, time);
+  drawLobbyBackground(ctx, time); // PERFTEST
   drawLobbyTitle(ctx, time);
 
   // ---- taken colours (a colour may only be used once) ----
@@ -2225,6 +2222,7 @@ function getLobbyBackdrop() {
 }
 
 function drawLobbyBackground(ctx, t) {
+  if (globalThis.__noBg) return;
   const backdrop = getLobbyBackdrop();
   if (backdrop) ctx.drawImage(backdrop, 0, 0, LOGICAL_W, LOGICAL_H);
   else paintLobbyBackdrop(ctx);
@@ -2265,6 +2263,7 @@ function drawLobbyBackground(ctx, t) {
 
 /** The rocking tank preview + its hexagonal pad, in card-local coordinates. */
 function drawSlotPreview(ctx, col, index, t, alpha) {
+  if (globalThis.__noTank) return;
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.translate(SLOT_W / 2, SLOT_TANK_Y);
@@ -2312,6 +2311,7 @@ function drawSlotPreview(ctx, col, index, t, alpha) {
 }
 
 function drawLobbySlot(ctx, x, y, slot, index, taken, t) {
+  if (globalThis.__noCards) return;
   ctx.save();
   ctx.translate(x, y);
   ctx.textBaseline = 'middle';
@@ -2339,22 +2339,20 @@ function drawLobbySlot(ctx, x, y, slot, index, taken, t) {
       'rgba(15, 21, 33, 0.55)', 'rgba(7, 10, 17, 0.6)', null);
   }
 
-  // Everything colour-tinted is clipped to the card, so a glow can never bleed.
-  ctx.save();
-  roundRectPath(ctx, 0, 0, SLOT_W, SLOT_H, SLOT_R);
-  ctx.clip();
-
   if (joined) {
     // Header wash + spotlight behind the tank, cached PER COLOUR (max eight
-    // gradients ever) — nothing is allocated per frame.
+    // gradients ever) — nothing is allocated per frame. Egyik sem vág (clip):
+    // a mosás lekerekített úton megy, a fény pedig egy olyan téglalapon,
+    // ami maradéktalanul a kártyán belül van — így a vágómaszk ára megspórolva.
     const wash = cachedGradient(ctx, `lob-wash-${col.id}`, (c) => {
       const g = c.createLinearGradient(0, 0, 0, 96);
       g.addColorStop(0, hexToRgba(col.main, 0.30));
       g.addColorStop(1, hexToRgba(col.main, 0));
       return g;
     });
+    roundRectPath(ctx, 0, 0, SLOT_W, 100, SLOT_R);
     ctx.fillStyle = wash;
-    ctx.fillRect(0, 0, SLOT_W, 96);
+    ctx.fill();
 
     const glow = cachedGradient(ctx, `lob-glow-${col.id}`, (c) => {
       const g = c.createRadialGradient(SLOT_W / 2, SLOT_TANK_Y, 10, SLOT_W / 2, SLOT_TANK_Y, 118);
@@ -2363,16 +2361,18 @@ function drawLobbySlot(ctx, x, y, slot, index, taken, t) {
       return g;
     });
     ctx.fillStyle = glow;
-    ctx.fillRect(0, 0, SLOT_W, 260);
+    ctx.fillRect(SLOT_W / 2 - 118, SLOT_TANK_Y - 118, 236, 236);
 
     // Az akcentus-csík MINDIG a játékos színe: az állapotot a keret és a
     // jelvény mondja el, a szín pedig végig ugyanazt a széket jelenti.
-    ctx.fillStyle = hexToRgba(col.main, 0.95);
-    ctx.fillRect(0, 0, SLOT_W, 7);
-  }
-  ctx.restore();
+    // Vastag vonalként húzva a lekerekített sarkokon belül marad.
+    ctx.beginPath();
+    ctx.moveTo(SLOT_R, 4);
+    ctx.lineTo(SLOT_W - SLOT_R, 4);
+    ctx.strokeStyle = hexToRgba(col.main, 0.95);
+    ctx.lineWidth = 7;
+    ctx.stroke();
 
-  if (joined) {
     strokeRoundRect(ctx, 1.5, 1.5, SLOT_W - 3, SLOT_H - 3, SLOT_R - 1.5,
       accent, ready || lost ? 3.5 : 2.5);
     if (ready || isBot || lost) {
@@ -2709,6 +2709,7 @@ function pendingNames(slots) {
  *   885..899  keyboard scheme B
  */
 function drawLobbyFooter(ctx, lobby, canStart, t) {
+  if (globalThis.__noFooter) return;
   ctx.save();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
