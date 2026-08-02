@@ -170,9 +170,22 @@ export function installOnlineUI() {
   setInterval(refresh, 1000);
 }
 
-/** A meccs alatt halványabb és összecsukott, hogy ne takarja a játékteret. */
-export function setOnlinePlaying(playing) {
+/**
+ * Háttérbe húzza a panelt, ha épp nincs rá szükség (meccs közben, vagy a
+ * lobbi olyan lapján, ami nem az Online). Nyitva marad, ha a felhasználó
+ * épp beleírt vagy rákattintott — `:focus-within` a stíluslapban.
+ */
+let lastDimmed = null;
+
+export function setOnlinePlaying(dimmed) {
   if (!installed) return;
-  el.root.classList.toggle('playing', !!playing);
-  if (playing) openPanel(false);
+  const d = !!dimmed;
+  el.root.classList.toggle('playing', d);
+
+  // CSAK állapotváltáskor nyúlunk a panelhez. Képkockánként hívódik: ha
+  // minden hívásnál becsuknánk, a felhasználó ki sem tudná nyitni — a
+  // kattintása után a következő képkocka azonnal visszazárná.
+  if (d === lastDimmed) return;
+  lastDimmed = d;
+  openPanel(!d);
 }

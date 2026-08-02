@@ -122,8 +122,9 @@ A meccs magától megáll, ha valami elvenné tőletek az irányítást:
 | Gomb | Mit csinál |
 |---|---|
 | **R2** vagy **Kereszt** | Csatlakozás a szabad helyre, majd „Kész” jelzés |
-| **D-pad fel / le** | Váltás a saját szín-sor és a közös beállítások (Pattogó lövedék / Pálya / Cél) között |
-| **D-pad bal / jobb** vagy **L1 / R1** | Az aktuális sor értékének állítása (szín vagy beállítás) |
+| **L1 / R1** | Lapváltás a menüben (Játékosok · Meccs · Ellenfelek · Online · Irányítás) |
+| **D-pad fel / le** | Sorváltás az aktuális lapon |
+| **D-pad bal / jobb** | Az aktuális sor értékének állítása |
 | **Kör** | Először visszavonja a „Kész” jelzést, utána kilépés a helyről |
 | **Options** | A meccs indítása (legalább 2 **kész** játékos kell) |
 
@@ -151,6 +152,7 @@ helyek mindig elérhetők a lobbiban.
 | Lövés | `Szóköz` | `Numpad 0` |
 | Csatlakozás / Kész / OK | `Enter` | `Numpad Enter` |
 | Kilépés / Vissza | `Esc` | `Numpad .` vagy `Backspace` |
+| Lapváltás a menüben | `Tab` | `Tab` |
 | Sorváltás a lobbiban | `W` / `S` vagy `↑` / `↓` | `I` / `K` vagy `Numpad 8` / `5` |
 | Érték állítása (szín, beállítás) | `Q` / `E` vagy `←` / `→` | `U` / `O` vagy `Numpad 4` / `6` |
 | Meccs indítása | `Enter` (már kész állapotban) | `Numpad Enter` (már kész állapotban) |
@@ -183,6 +185,21 @@ lenyomás mindig pontosan egy dolgot csinál; a készt az `Esc` vonja vissza.
 - **Egyszerre legfeljebb 5 lövedéked** lehet a levegőben (Gyorstűzzel 8).
 - A tankod mellett mindig ott a **sorszámod nagy, kontrasztos számmal** — így akkor is
   megtalálod magad, ha a színeket nehezen különbözteted meg.
+
+### A menü felépítése
+
+A lobbi lapokra van osztva — **L1 / R1** (vagy `Tab`) vált köztük:
+
+| Lap | Mi van rajta |
+|---|---|
+| **Játékosok** | A négy hely, a színválasztás és az indítás. Ez az alapértelmezett: az „R2 → Kereszt → Options” út egyetlen lapváltás nélkül megvan. |
+| **Meccs** | Pálya, cél pontszám, pattogó lövedék |
+| **Ellenfelek** | Hány gépi ellenfél, és milyen szinten |
+| **Online** | A szobakód és az állapot |
+| **Irányítás** | A teljes kiosztás, kontrollerre és billentyűzetre |
+
+A Játékosok lapon egy sorban ott a lényeg (pálya, cél, pattogó, gépek száma),
+tehát a beállítások megnézéséhez sem kell lapozni — csak az állításukhoz.
 
 ### Beállítások a lobbiban
 

@@ -91,6 +91,7 @@ const KEY_SCHEME_DEFS = [
     cancel: ['Escape'],
     start: ['Enter'],
     prev: ['KeyQ', 'ArrowLeft'],
+    tabNext: ['Tab'],
     next: ['KeyE', 'ArrowRight'],
     menuUp: ['KeyW', 'ArrowUp'],
     menuDown: ['KeyS', 'ArrowDown'],
@@ -111,6 +112,7 @@ const KEY_SCHEME_DEFS = [
     cancel: ['NumpadDecimal', 'Backspace'],
     start: ['NumpadEnter'],
     prev: ['KeyU', 'Numpad4'],
+    tabNext: ['Tab'],
     next: ['KeyO', 'Numpad6'],
     menuUp: ['KeyI', 'Numpad8'],
     menuDown: ['KeyK', 'Numpad5'],
@@ -308,6 +310,7 @@ function makeState() {
     confirmPressed: false,
     cancelPressed: false,
     prevPressed: false, nextPressed: false,
+    tabPrevPressed: false, tabNextPressed: false,
     startPressed: false,
     upPressed: false, downPressed: false,
     anyPressed: false,
@@ -321,6 +324,7 @@ function resetState(s) {
   s.confirmPressed = false;
   s.cancelPressed = false;
   s.prevPressed = false; s.nextPressed = false;
+  s.tabPrevPressed = false; s.tabNextPressed = false;
   s.startPressed = false;
   s.upPressed = false; s.downPressed = false;
   s.anyPressed = false;
@@ -362,10 +366,14 @@ let lastPollTime = -Infinity;
  * Távoli játékosok
  * ------------------------------------------------------------------------ */
 
-const REMOTE_EDGE_KEYS = ['fire', 'confirm', 'cancel', 'start', 'prev', 'next', 'up', 'down'];
+const REMOTE_EDGE_KEYS = ['fire', 'confirm', 'cancel', 'start', 'prev', 'next', 'up', 'down', 'tabPrev', 'tabNext'];
 
 function makeRemoteEdges() {
-  return { fire: false, confirm: false, cancel: false, start: false, prev: false, next: false, up: false, down: false };
+  return {
+    fire: false, confirm: false, cancel: false, start: false,
+    prev: false, next: false, up: false, down: false,
+    tabPrev: false, tabNext: false,
+  };
 }
 
 /**
@@ -386,6 +394,8 @@ function accumulateLocalEdges(s) {
   if (s.startPressed) localEdges.start = true;
   if (s.prevPressed) localEdges.prev = true;
   if (s.nextPressed) localEdges.next = true;
+  if (s.tabPrevPressed) localEdges.tabPrev = true;
+  if (s.tabNextPressed) localEdges.tabNext = true;
   if (s.upPressed) localEdges.up = true;
   if (s.downPressed) localEdges.down = true;
 }
@@ -412,6 +422,8 @@ function updateRemoteDevice(dev) {
   s.startPressed = q.start;
   s.prevPressed = q.prev;
   s.nextPressed = q.next;
+  s.tabPrevPressed = q.tabPrev;
+  s.tabNextPressed = q.tabNext;
   s.upPressed = q.up;
   s.downPressed = q.down;
   s.anyPressed = q.fire || q.confirm || q.cancel || q.start || q.prev || q.next || q.up || q.down;
@@ -586,14 +598,20 @@ function updateGamepadDevice(dev, pad) {
   const confirm = readButton(pad, BTN.CROSS);
   const cancel = readButton(pad, BTN.CIRCLE);
   const start = readButton(pad, BTN.OPTIONS);
-  const goPrev = dpadLeft || readButton(pad, BTN.L1);
-  const goNext = dpadRight || readButton(pad, BTN.R1);
+  // A D-pad bal/jobb az ÉRTÉKÉ, az L1/R1 a LAPOKÉ. Korábban a kettő ugyanaz
+  // volt; a menü lapokra bontásával kellett szétválasztani őket.
+  const goPrev = dpadLeft;
+  const goNext = dpadRight;
+  const tabPrev = readButton(pad, BTN.L1);
+  const tabNext = readButton(pad, BTN.R1);
 
   s.confirmPressed = confirm && !prev.confirm;
   s.cancelPressed = cancel && !prev.cancel;
   s.startPressed = start && !prev.start;
   s.prevPressed = goPrev && !prev.prev;
   s.nextPressed = goNext && !prev.next;
+  s.tabPrevPressed = tabPrev && !prev.tabPrev;
+  s.tabNextPressed = tabNext && !prev.tabNext;
   s.upPressed = dpadUp && !prev.up;
   s.downPressed = dpadDown && !prev.down;
 
@@ -602,6 +620,8 @@ function updateGamepadDevice(dev, pad) {
   prev.start = start;
   prev.prev = goPrev;
   prev.next = goNext;
+  prev.tabPrev = tabPrev;
+  prev.tabNext = tabNext;
   prev.up = dpadUp;
   prev.down = dpadDown;
 
@@ -670,6 +690,8 @@ function updateKeyboardDevice(dev) {
   s.startPressed = pressedAny(dev, sc.start);
   s.prevPressed = pressedAny(dev, sc.prev);
   s.nextPressed = pressedAny(dev, sc.next);
+  s.tabNextPressed = pressedAny(dev, sc.tabNext);
+  s.tabPrevPressed = false;
   s.upPressed = pressedAny(dev, sc.menuUp);
   s.downPressed = pressedAny(dev, sc.menuDown);
   s.anyPressed = dev.pressed.size > 0;
@@ -868,6 +890,7 @@ export const Input = {
       e: {
         fire: e.fire, confirm: e.confirm, cancel: e.cancel, start: e.start,
         prev: e.prev, next: e.next, up: e.up, down: e.down,
+        tabPrev: e.tabPrev, tabNext: e.tabNext,
       },
     };
     clearLocalEdges();

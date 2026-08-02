@@ -176,7 +176,11 @@ function tick(nowMs) {
   // --- hálózat -------------------------------------------------------------
   // Gazdaként a lobbi/meccs állapotát küldjük, vendégként a saját inputunkat.
   NetPlay.tick(scene === 'lobby' ? lobby : null, scene === 'game' ? game : null);
-  setOnlinePlaying(scene === 'game' || NetPlay.showingGame);
+  // A DOM-panel csak ott van útban, ahol nem kell: a lobbi Online lapján
+  // (és vendégként) mutatjuk, máshol összecsukva marad.
+  const wantPanel = NetPlay.mode !== 'off'
+    || (scene === 'lobby' && lobby && lobby.sectionId === 'online');
+  setOnlinePlaying(!wantPanel);
 
   // Szobából kilépve tiszta lappal folytatjuk itthon: amíg vendégek voltunk,
   // a helyi lobbi állt, és a közben odaérkezett gombnyomások ott ragadtak.
@@ -240,8 +244,12 @@ function draw(nowMs) {
     return;
   }
 
-  if (scene === 'lobby') drawLobby(ctx, lobby, t);
-  else if (game) drawGame(ctx, game, t);
+  if (scene === 'lobby') {
+    // Az Online lap a szoba állapotát mutatja; a lobbi maga nem ismeri a
+    // hálózatot, ezért itt tesszük rá.
+    lobby.net = NetPlay.summary;
+    drawLobby(ctx, lobby, t);
+  } else if (game) drawGame(ctx, game, t);
 }
 
 // ---------------------------------------------------------------------------
