@@ -549,6 +549,32 @@ Ellenőrzés: a `https://tank.luiz-tech.hu/api/health` címnek
 > ilyenkor a tárhely támogatásától kell kérni a pufferelés (proxy buffering)
 > kikapcsolását.
 
+### Frissítés egy paranccsal (`deploy.sh`)
+
+Ha egyszer már beállítottad a Node-alkalmazást, a további frissítéseket a
+repóban lévő `deploy.sh` elvégzi:
+
+```bash
+cd /tmp/slag && git pull
+./deploy.sh /home/FELHASZNALO/domain.hu
+```
+
+Ez kimásolja a játékot (`index.html`, `styles.css`, `src/`) és a kiszolgálót
+(`app.js`, `tools/`), kéri a Passenger újraindítását, majd **ellenőrzi**, hogy
+a kint lévő fájlok tényleg azonosak-e a helyiekkel.
+
+Ha a szoba-kiszolgálót is méretné, add meg a domaint:
+
+```bash
+SLAG_URL=https://tank.luiz-tech.hu ./deploy.sh /home/FELHASZNALO/domain.hu
+```
+
+Három csapdát kerül el, amibe kézi másolásnál könnyű beleesni: a `cp -r src cél/`
+`cél/src/src`-et csinál, ha a célban már van `src/`; könnyű kihagyni egy mappát
+(egyszer csak az `app.js` és a `tools/` ment ki, a `src/` nem); és a
+`tmp/restart.txt`-nek az **alkalmazás** mappájába kell kerülnie, nem oda, ahol
+épp állsz.
+
 ### Ha a tárhelyeden nem futhat Node
 
 Akkor a játék statikus része (`index.html`, `styles.css`, `src/`) önmagában is
