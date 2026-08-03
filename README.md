@@ -92,6 +92,30 @@ megnyomott rajta egy gombot**. Ezért:
 Ha ezt megtettétek, a lobbiban azonnal megjelenik mind a négy „Kontroller” felirat.
 Minden padot külön-külön be kell „ébreszteni” egy gombnyomással.
 
+### A kontroller fénysávja a saját színedben
+
+A bal felső sarokban van egy **„Kontroller fénye”** gomb. Ha rákattintasz, és a
+felugró ablakban kiválasztod a kontrollert, a **fénysávja onnantól abban a
+színben világít, amit a lobbiban választottál** — és a színváltást azonnal
+követi. Meccs közben végig ég, így egy pillantással látod, melyik pad kié.
+
+Több kontrollernél nyisd meg a gombot egyszer, és a listából **jelöld ki
+mindet** (Ctrl-kattintás), vagy kattints rá egyesével.
+
+Tudnivalók:
+
+| | |
+|---|---|
+| **Böngésző** | Csak Chrome / Edge / Opera / Brave — a fénysávhoz WebHID kell, ami Firefoxban és Safariban nincs. Ott a gomb meg sem jelenik, a játék változatlanul megy. |
+| **HTTPS** | Ugyanúgy kell hozzá, mint a kontrollerhez (`localhost` is jó). |
+| **Kattintás kell** | A böngésző az engedélykérőt csak valódi egérkattintásra nyitja meg — kontrollergombra nem. Ezért van rá külön gomb. |
+| **Sorrend** | A böngésző nem árulja el, melyik engedélyezett eszköz melyik kontroller. A **megadás sorrendje** dönt: az elsőnek engedélyezett eszköz az első csatlakoztatott kontrolleré. Ha felcserélődnének, töltsd újra az oldalt, és add meg őket a kívánt sorrendben. |
+| **Támogatott** | DualSense (PS5) kábelen és Bluetooth-on, DualShock 4 (PS4) kábelen. Más kontrollernek nincs vezérelhető fénye. |
+| **Online** | Vendégként (más szobájában) a fény halvány alapszínen marad: onnan nem látszik hitelesen, melyik ülés a tiéd. |
+
+Az engedélyt elég egyszer megadni: a következő betöltéskor a játék magától
+visszaveszi. Az oldal bezárásakor a fény lekapcsol.
+
 ---
 
 ## 3. Vezérlés
@@ -280,6 +304,18 @@ A `dist/slag.html`-t a módosítás után újra kell építeni (`npm run build`)
 - Lehet, hogy a játék némítva van: nyomj **`M`**-et.
 - Nézd meg, nincs-e maga a böngészőlap némítva (jobb klikk a lapfülön).
 
+### Nem világít a kontroller fénysávja
+
+- **Nincs ott a gomb a bal felső sarokban?** A böngésződ nem tud WebHID-et
+  (Firefox, Safari). Chrome-ban vagy Edge-ben megjelenik.
+- **Üres a felugró lista?** Kábeles DualSense-nél zárj be minden más programot,
+  ami fogja a kontrollert (Steam, DS4Windows, PS Remote Play) — a HID-eszközt
+  egyszerre csak egy alkalmazás nyithatja meg.
+- **Rossz kontrolleren világít?** A sorrend dönt: töltsd újra az oldalt, és a
+  kívánt sorrendben engedélyezd az eszközöket.
+- **Steam fut?** A Steam felülírhatja a fénysávot a saját beállításával. Zárd
+  be, vagy kapcsold ki benne a PlayStation-kontroller támogatását.
+
 ### Akadozik, szaggat
 
 - Kapcsolj **teljes képernyőre** (`F`) — így nem kell felskálázni az ablakot.
@@ -317,8 +353,8 @@ négy játékosra bőven elég.
 | **Chrome** (asztali) | ✅ Ajánlott — teljes kontroller- és rezgéstámogatás |
 | **Edge** (asztali) | ✅ Ajánlott — ugyanaz a motor |
 | **Opera, Brave, Vivaldi** | ✅ Működik (Chromium-alapúak) |
-| **Firefox** | ⚠️ Elindul, de a kontroller gombkiosztása eltérhet, és a rezgés nem működik |
-| **Safari** | ⚠️ Korlátozott gamepad-támogatás, nem ajánlott |
+| **Firefox** | ⚠️ Elindul, de a kontroller gombkiosztása eltérhet, a rezgés és a fénysáv nem működik |
+| **Safari** | ⚠️ Korlátozott gamepad-támogatás, nincs fénysáv, nem ajánlott |
 | Mobil / tablet | ❌ Nem támogatott — négy kontrolleres, egy képernyős játék |
 
 A játék semmilyen adatot nem küld el és nem tárol; teljes egészében a te gépeden fut.
