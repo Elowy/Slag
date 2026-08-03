@@ -358,6 +358,16 @@ const devices = new Map();
 const keyboardDevices = [];
 /** @type {Array<object>} hálózaton lévő játékosok eszközei. */
 const remoteDevices = [];
+/**
+ * @type {Array<object>} érintőképernyős eszköz (legfeljebb egy: egy telefonon
+ * egy ember játszik).
+ *
+ * Ugyanazt a "nyomva tartott állapot + gyűlő élek" tárolót használja, mint a
+ * távoli játékos — a képernyőre rajzolt kar is csak egy állapotforrás. A
+ * KÜLÖNBSÉG a `kind`: a `touch` HELYI eszköz, ezért a hálózati csomagba is
+ * belekerül. Enélkül egy telefonról csatlakozó vendég némán ülne a lobbiban.
+ */
+const touchDevices = [];
 
 let initialized = false;
 let lastPollTime = -Infinity;
@@ -406,6 +416,7 @@ function accumulateLocalEdges(s) {
  * Az analóg mezők a legutóbb kapott csomagból jönnek, a gombélek pedig a
  * gyűjtőből — mindegyik pontosan egy pollig él, ahogy egy helyi eszközön is.
  */
+/** Közös a távoli és az érintős eszközre: mindkettő a `dev.remote` tárolóból él. */
 function updateRemoteDevice(dev) {
   const s = dev.state;
   const r = dev.remote;
@@ -792,6 +803,12 @@ export const Input = {
     for (let i = 0; i < remoteDevices.length; i++) {
       updateRemoteDevice(remoteDevices[i]);
     }
+    // Az érintős eszköz a távolival azonos úton frissül, de a helyi élek
+    // gyűjtése ELŐTT — így egy telefonról érkező gombnyomás is felkerül a
+    // hálózati csomagra.
+    for (let i = 0; i < touchDevices.length; i++) {
+      updateRemoteDevice(touchDevices[i]);
+    }
 
     // A helyi gombélek gyűjtése a hálózati küldéshez. Csak a SAJÁT
     // eszközöket nézzük — a távoliak élei már átjöttek a hálózaton.
@@ -843,6 +860,62 @@ export const Input = {
     r.fireHeld = !!payload.fh;
     // Az élek GYŰLNEK a következő pollig: két csomag is érkezhet egy poll
     // közé, és egyik gombnyomás sem veszhet el.
+    const e = payload.e || {};
+    const q = r.edges;
+    for (const k of REMOTE_EDGE_KEYS) if (e[k]) q[k] = true;
+    r.fresh = nowMs();
+  },
+
+  /**
+   * Az érintőképernyő felvétele teljes értékű eszközként.
+   *
+   * A hívás késleltethető: `touch.js` csak akkor kéri, amikor a képernyőn
+   * TÉNYLEGESEN volt érintés. Egy érintőképernyős laptopon így nem jelenik meg
+   * fölöslegesen egy ötödik „játékos” a lobbiban.
+   *
+   * @returns {string} az eszköz azonosítója
+   */
+  enableTouchDevice() {
+    const id = 'touch-0';
+    if (!devices.has(id)) {
+      const dev = makeDeviceRecord(id, 'touch', 'Érintőképernyő');
+      dev.connected = true;
+      dev.remote = {
+        moveX: 0, moveY: 0, moveMag: 0, aimX: 0, aimY: 0, aimMag: 0,
+        fire: 0, fireHeld: false, fresh: 0, edges: makeRemoteEdges(),
+      };
+      devices.set(id, dev);
+      touchDevices.push(dev);
+    }
+    return id;
+  },
+
+  /** @returns {boolean} van-e élő érintős eszköz. */
+  hasTouchDevice() {
+    return touchDevices.length > 0;
+  },
+
+  /**
+   * A képernyőre rajzolt kezelőszervek állapota.
+   *
+   * Ugyanaz a csomagformátum, mint a hálózaton (`serializeLocalInput()`), és
+   * ugyanúgy GYŰLNEK az élek a következő pollig: az érintés-események a
+   * képkockák KÖZÖTT jönnek, egy két poll közé eső koppintás nem veszhet el.
+   *
+   * @param {object} payload
+   */
+  setTouchState(payload) {
+    const dev = devices.get('touch-0');
+    if (!dev || !payload) return;
+    const r = dev.remote;
+    r.moveX = Number.isFinite(payload.mx) ? payload.mx : 0;
+    r.moveY = Number.isFinite(payload.my) ? payload.my : 0;
+    r.moveMag = clamp01(payload.mm);
+    r.aimX = Number.isFinite(payload.ax) ? payload.ax : 0;
+    r.aimY = Number.isFinite(payload.ay) ? payload.ay : 0;
+    r.aimMag = clamp01(payload.am);
+    r.fire = clamp01(payload.f);
+    r.fireHeld = !!payload.fh;
     const e = payload.e || {};
     const q = r.edges;
     for (const k of REMOTE_EDGE_KEYS) if (e[k]) q[k] = true;

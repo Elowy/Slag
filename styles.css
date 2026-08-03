@@ -432,3 +432,82 @@ body.cursor-hidden #game {
   opacity: 0;
   pointer-events: none;
 }
+
+/* ------------------------------------------------------------------------- *
+ * Érintőképernyő (telefon, tablet)
+ * ------------------------------------------------------------------------- */
+
+/* A kezelőszerveket a vászonra rajzoljuk (render.js), így csak a lap körüli
+   dolgokat kell itt igazítani. */
+
+.touch-note {
+  display: none;
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(129, 140, 248, 0.45);
+  border-radius: 10px;
+  background: rgba(30, 41, 59, 0.55);
+  font-size: 13px;
+  line-height: 1.45;
+  color: #c7d2fe;
+}
+
+/* Érintős készülék: csak ott van értelme. */
+@media (pointer: coarse) {
+  .touch-note { display: block; }
+  /* Ujjal a hosszú billentyűlista csak elveszi a helyet. */
+  .keys { display: none; }
+}
+
+/* --- „Fordítsd el a telefont” ------------------------------------------- */
+
+.rotate {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  align-items: center;
+  justify-content: center;
+  background: #05070d;
+  text-align: center;
+  padding: 24px;
+}
+
+/* Csak érintős készüléken, csak állóban, és csak ha tényleg alacsony a kép:
+   egy álló tabletnél még elfér a 16:9. */
+@media (pointer: coarse) and (orientation: portrait) and (max-aspect-ratio: 3/4) {
+  .rotate { display: flex; }
+}
+
+.rotate-icon {
+  font-size: 64px;
+  line-height: 1;
+  color: #818cf8;
+  animation: rotate-hint 2.2s ease-in-out infinite;
+}
+
+.rotate-text {
+  margin: 18px 0 4px;
+  font-size: 20px;
+  font-weight: 800;
+  color: #e2e8f0;
+}
+
+.rotate-sub {
+  margin: 0;
+  font-size: 14px;
+  color: rgba(148, 163, 184, 0.9);
+}
+
+@keyframes rotate-hint {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(-90deg); }
+}
+
+/* Meccs közben a lebegő DOM-panelek elveszik a hüvelykujj helyét — és a
+   telefon kis képernyőjén rá is fekszenek a játékos-kártyákra. */
+@media (pointer: coarse) {
+  .online { width: min(280px, calc(100vw - 24px)); }
+  .online.playing { display: none; }
+  .light { display: none; }
+}
