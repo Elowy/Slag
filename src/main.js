@@ -26,13 +26,14 @@
 
 import { Input } from './input.js';
 import { Audio } from './audio.js';
-import { initRender, resize, drawGame, drawLobby } from './render.js';
+import { initRender, resize, drawGame, drawLobby, drawTouchOverlay } from './render.js';
 import { Lobby } from './lobby.js';
 import { Game } from './game.js';
 import { NetPlay } from './netplay.js';
 import { installOnlineUI, setOnlinePlaying } from './online-ui.js';
 import { Lightbar } from './lightbar.js';
 import { installLightbarUI, setLightbarPlaying } from './lightbar-ui.js';
+import { TouchUI } from './touch.js';
 
 /** Fixed simulation step: 120 Hz. */
 const STEP = 1 / 120;
@@ -115,6 +116,7 @@ function boot() {
   installOverlay();
   installOnlineUI();
   installLightbarUI();
+  TouchUI.install(canvas);
 
   running = true;
   requestAnimationFrame(frame);
@@ -185,6 +187,9 @@ function tick(nowMs) {
     || (scene === 'lobby' && lobby && lobby.sectionId === 'online');
   setOnlinePlaying(!wantPanel);
   setLightbarPlaying(scene === 'game');
+  // Az érintős kezelőszervek meccs közben karok, máskor menügombok. Vendégként
+  // a gazda képe dönt, nem a mi (álló) jelenetünk.
+  TouchUI.setMode(NetPlay.mode === 'client' ? NetPlay.showingGame : scene === 'game');
   updateLightbar();
 
   // Szobából kilépve tiszta lappal folytatjuk itthon: amíg vendégek voltunk,
@@ -196,6 +201,56 @@ function tick(nowMs) {
   handleEndScreenInput();
   updateCursor(dt);
   draw(nowMs);
+}
+
+/**
+ * Telefonos teljes képernyő és képernyő-ébrentartás.
+ *
+ * Mindkettő „ha megy, megy” jellegű: a Safari nem ad teljes képernyőt vászonra,
+ * a Wake Lock pedig nincs meg minden böngészőben. Egyik hiánya sem baj, ezért
+ * minden hívás némán elnyeli a hibát — a játék nélkülük is megy.
+ */
+async function goMobileFullscreen() {
+  try {
+    const el = document.documentElement;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (typeof req === 'function' && !document.fullscreenElement) await req.call(el);
+  } catch { /* a böngésző nem adta meg — nem gond */ }
+
+  try {
+    // Fekvő tájolás: csak teljes képernyőn engedik, és csak Androidon.
+    const orientation = globalThis.screen && globalThis.screen.orientation;
+    if (orientation && typeof orientation.lock === 'function') await orientation.lock('landscape');
+  } catch { /* asztali gépen és iOS-en nincs ilyen — rendben */ }
+
+  requestWakeLock();
+}
+
+/** @type {any} */
+let wakeLock = null;
+/** Kértünk-e valaha ébrentartást (a lap visszatérésekor ebből újítjuk meg). */
+let wantWakeLock = false;
+
+/**
+ * A képernyő ne aludjon el egy hosszabb meccs közben.
+ *
+ * A zárat a böngésző ELVESZI, amint a lap háttérbe kerül, ezért a lap
+ * visszatérésekor újra kell kérni — enélkül egy értesítés után a telefon a
+ * meccs közepén elsötétülne.
+ */
+async function requestWakeLock() {
+  wantWakeLock = true;
+  try {
+    if (!navigator.wakeLock || wakeLock) return;
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+  } catch { wakeLock = null; }
+}
+
+function renewWakeLock() {
+  if (!wantWakeLock || wakeLock) return;
+  if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+  requestWakeLock();
 }
 
 /**
@@ -291,8 +346,10 @@ function draw(nowMs) {
     if (NetPlay.showingGame) drawGame(ctx, NetPlay.gameView.sample(nowMs), t);
     else {
       NetPlay.lobbyView.time = t;
+      NetPlay.lobbyView.touch = TouchUI.used;
       drawLobby(ctx, NetPlay.lobbyView, t);
     }
+    drawTouchOverlay(ctx, TouchUI.layout);
     return;
   }
 
@@ -300,8 +357,15 @@ function draw(nowMs) {
     // Az Online lap a szoba állapotát mutatja; a lobbi maga nem ismeri a
     // hálózatot, ezért itt tesszük rá.
     lobby.net = NetPlay.summary;
+    // A lobbi maga nem tud az érintőképernyőről; a rajzoló viszont ettől hagyja
+    // el a billentyűzet- és kontroller-súgót, ami telefonon csak zaj.
+    lobby.touch = TouchUI.used;
     drawLobby(ctx, lobby, t);
   } else if (game) drawGame(ctx, game, t);
+
+  // A kezelőszervek MINDEN másra rákerülnek — a szünet-fátyolra is, különben
+  // a telefonon nem lehetne feloldani a szünetet.
+  drawTouchOverlay(ctx, TouchUI.layout);
 }
 
 // ---------------------------------------------------------------------------
@@ -506,6 +570,7 @@ function installWindowHandlers() {
     if (document.hidden) return;
     lastFrameMs = -1;
     accumulator = 0;
+    renewWakeLock();
   });
 
   // Fókuszvesztéskor a gamepad-állapot befagy az utolsó értéken: a tank
@@ -608,6 +673,11 @@ function installOverlay() {
     window.removeEventListener('pointerdown', dismiss);
     window.removeEventListener('keydown', dismiss);
     hideOverlay();
+
+    // Telefonon ez az EGYETLEN biztos felhasználói gesztus, amiből a böngésző
+    // teljes képernyőt és képernyő-ébrentartást enged. Utána már nem lehet
+    // kérni — ezért itt, és nem később.
+    if (TouchUI.available) goMobileFullscreen();
   };
 
   /**

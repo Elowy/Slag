@@ -4,6 +4,9 @@ Négy ember, egy kanapé, egy monitor. A **Slag** felülnézetes tankcsata, ami 
 böngésződben fut — nincs telepítés, nincs regisztráció, nincs internetkapcsolat.
 Mindenki a saját PS5-kontrollerével játszik, ugyanazon a képernyőn.
 
+Ha nem vagytok egy szobában, egy **linkkel** is összeülhettek, és **telefonról**
+is játszhattok — érintőképernyős kezeléssel.
+
 Egy meccs 3–6 perc. Aki elsőként összeszedi a beállított pontszámot, nyer.
 
 ---
@@ -163,6 +166,42 @@ kerettel jelzi ezt, és pár másodperc múlva magától felszabadul.
 |---|---|
 | **Kereszt** | Azonnali visszavágó ugyanezzel a felállással |
 | **Options** vagy **Kör** | Vissza a lobbiba (szín- és beállításváltáshoz) |
+
+### Érintőképernyő (telefon, tablet)
+
+Telefonon nem kell semmit beállítani: az **első koppintásra megjelennek a
+képernyőre rajzolt kezelőszervek**, és onnantól a telefon ugyanolyan játékos,
+mint aki kontrollerrel ül a kanapén.
+
+**Menüben** nagy, koppintható gombok:
+
+| Gomb | Mit csinál |
+|---|---|
+| `▲` `▼` | sorváltás a beállítások között |
+| `◀` `▶` | az érték állítása (szín, pálya, pont, botok) |
+| `«` `»` | lapváltás (Játékosok / Meccs / Ellenfelek / Online / Irányítás) |
+| `✕` | csatlakozás, majd „kész” |
+| `○` | kilépés a helyről, a „kész” visszavonása |
+| `START` | a meccs indítása |
+
+**Meccs közben** két hüvelykujj:
+
+| Hol | Mit csinál |
+|---|---|
+| bal oldal, bárhol | ott jelenik meg a **kar** — arra megy a tank, és arra fordul a torony is |
+| jobb alsó `TŰZ` | lövés; nyomva tartva folyamatosan tüzel |
+| jobb oldal, üres rész | külön **célzókar**, ha a torony mást akar nézni, mint amerre mész |
+| bal fent `❚❚` | szünet |
+
+A játék **fekvő képre** készült — állóban egy „Fordítsd el a telefont” tábla jön.
+Az első koppintás egyben teljes képernyőre vált, fekvőre rögzíti a tájolást
+(Androidon), és ébren tartja a képernyőt, hogy egy hosszabb meccs közben ne
+aludjon el.
+
+Egy készüléken **egy ember** játszik. Négyen úgy játszotok telefonról, hogy
+mindenki a saját készülékén nyitja meg az **online szoba** linkjét — lásd a
+„10. Online szoba” fejezetet. Vegyíthető is: a gazda gépén ülhet két ember
+kontrollerrel, és két barát csatlakozhat telefonról.
 
 ### Billentyűzet
 
@@ -355,7 +394,7 @@ négy játékosra bőven elég.
 | **Opera, Brave, Vivaldi** | ✅ Működik (Chromium-alapúak) |
 | **Firefox** | ⚠️ Elindul, de a kontroller gombkiosztása eltérhet, a rezgés és a fénysáv nem működik |
 | **Safari** | ⚠️ Korlátozott gamepad-támogatás, nincs fénysáv, nem ajánlott |
-| Mobil / tablet | ❌ Nem támogatott — négy kontrolleres, egy képernyős játék |
+| Mobil / tablet | ✅ Érintőképernyős kezeléssel — fekvő tájolásban, egy játékos készülékenként |
 
 A játék semmilyen adatot nem küld el és nem tárol; teljes egészében a te gépeden fut.
 

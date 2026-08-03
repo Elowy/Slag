@@ -1800,6 +1800,79 @@ export function drawGame(ctxOrWrapper, game, t) {
   endFrame(ctx);
 }
 
+/* ------------------------------------------------------------------------ *
+ * Érintőképernyős kezelőszervek
+ * ------------------------------------------------------------------------ */
+
+/** Egy kar: a kiindulási kör és a benne csúszó fej. */
+function drawTouchStick(ctx, stick, radius) {
+  if (!stick || !stick.active) return;
+  ctx.save();
+
+  ctx.beginPath();
+  ctx.arc(stick.baseX, stick.baseY, radius, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.34)';
+  ctx.fill();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.5)';
+  ctx.stroke();
+
+  const hx = stick.baseX + stick.dx * stick.mag * radius;
+  const hy = stick.baseY + stick.dy * stick.mag * radius;
+  ctx.beginPath();
+  ctx.arc(hx, hy, radius * 0.42, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(199, 210, 254, 0.62)';
+  ctx.fill();
+  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = 'rgba(226, 232, 240, 0.85)';
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+/** Egy kerek gomb felirattal; lenyomva világosabb. */
+function drawTouchButton(ctx, btn, down) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(btn.x, btn.y, btn.r, 0, Math.PI * 2);
+  ctx.fillStyle = down ? 'rgba(129, 140, 248, 0.44)' : 'rgba(15, 23, 42, 0.42)';
+  ctx.fill();
+  ctx.lineWidth = down ? 4 : 3;
+  ctx.strokeStyle = down ? 'rgba(199, 210, 254, 0.95)' : 'rgba(148, 163, 184, 0.6)';
+  ctx.stroke();
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  // A hosszabb feliratok (TŰZ, START) kisebb betűvel, hogy beférjenek.
+  const size = btn.label.length > 2 ? Math.round(btn.r * 0.42) : Math.round(btn.r * 0.72);
+  ctx.font = font(size, 800);
+  ctx.fillStyle = down ? '#ffffff' : 'rgba(226, 232, 240, 0.88)';
+  ctx.fillText(btn.label, btn.x, btn.y + 1);
+  ctx.restore();
+}
+
+/**
+ * A képernyőre rajzolt kezelőszervek. A jelenet rajzolása UTÁN hívandó, hogy
+ * mindenen rajta legyen.
+ *
+ * @param {CanvasRenderingContext2D|object} ctxOrWrapper
+ * @param {object|null} layout a `TouchUI.layout` leírása
+ */
+export function drawTouchOverlay(ctxOrWrapper, layout) {
+  const ctx = unwrap(ctxOrWrapper);
+  if (!ctx || !layout) return;
+
+  ctx.save();
+  if (layout.mode === 'game') {
+    drawTouchStick(ctx, layout.move, layout.stickRadius);
+    drawTouchStick(ctx, layout.aim, layout.stickRadius);
+  }
+  for (const btn of layout.buttons) {
+    drawTouchButton(ctx, btn, layout.pressed.has(btn.id));
+  }
+  ctx.restore();
+}
+
 /**
  * Teljes képernyős szünet-fátyol.
  *
@@ -3061,9 +3134,12 @@ function drawLobbyFooter(ctx, lobby, canStart, t) {
   // "Press a button" hint when no gamepad has been seen yet. Chrome only
   // reports pads after a user gesture, hence the explicit nudge. Computed
   // first: when it is up it owns the band right below the start prompt.
-  const noPads = lobby.hasGamepads === false
+  // Érintőképernyőn a kontroller- és billentyűzet-súgó csak zaj: ott a
+  // képernyőre rajzolt gombokkal játszanak.
+  const touch = lobby.touch === true;
+  const noPads = !touch && (lobby.hasGamepads === false
     || lobby.showControllerHint === true
-    || lobby.gamepadHint === true;
+    || lobby.gamepadHint === true);
 
   const pending = noPads || !Array.isArray(lobby.pendingSlots) ? [] : lobby.pendingSlots;
 
@@ -3155,7 +3231,7 @@ function drawLobbyFooter(ctx, lobby, canStart, t) {
   // A sávok magassága és helye szűk: fölöttük az indítás-tábla alja 792-nél,
   // alattuk a vezérlés-legenda kupakjainak teteje 841-nél van. 796..836 az a
   // doboz, ami mindkettőt elkerüli — ezért y=816, magasság 40, MINDKÉT sávnál.
-  const support = lobby.gamepadSupport;
+  const support = touch ? 'ok' : lobby.gamepadSupport;
   if (support === 'insecure' || support === 'unsupported') {
     const insecure = support === 'insecure';
     const msg = insecure
@@ -3171,15 +3247,20 @@ function drawLobbyFooter(ctx, lobby, canStart, t) {
       'rgba(250, 204, 21, 0.7)', '#fde047', msg, 19, 700, t);
   }
 
-  drawLobbyLegend(ctx);
+  // A kontroller-legenda érintőn hazugság: nincs se stick, se R2, se L1/R1.
+  if (!touch) drawLobbyLegend(ctx);
 
   // Keyboard legend: movement AND the menu keys, because a keyboard player has
   // no Cross / Circle / Options to press.
   ctx.textAlign = 'center';
   // A billentyűzet teljes kiosztása az `Irányítás` lapon van; a lábléc csak
   // annyit mond, hol keresd. Így egy sorral rövidebb és nyugodtabb a kép.
-  const kbA = 'Billentyűzet: WASD + nyilak + Space, illetve IJKL + Numpad';
-  const kbB = 'A teljes kiosztás az Irányítás lapon';
+  const kbA = touch
+    ? 'Érintés: a képernyőre rajzolt gombokkal navigálsz'
+    : 'Billentyűzet: WASD + nyilak + Space, illetve IJKL + Numpad';
+  const kbB = touch
+    ? 'A ‹ › nyilakkal érték, a « » gombokkal lapot váltasz'
+    : 'A teljes kiosztás az Irányítás lapon';
   ctx.fillStyle = 'rgba(148, 163, 184, 0.6)';
   fitFont(ctx, kbA, LOGICAL_W - 60, 14, 600);
   ctx.fillText(kbA, LOGICAL_W / 2, 876);

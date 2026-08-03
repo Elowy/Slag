@@ -33,6 +33,21 @@
         <li><b>Options</b> vagy <b>Enter</b> — a meccs indítása</li>
         <li><b>F</b> — teljes képernyő &nbsp;•&nbsp; <b>M</b> — némítás</li>
       </ul>
+      <!-- Csak érintőképernyőn látszik (styles.css: @media (pointer: coarse)). -->
+      <p class="touch-note">
+        Telefonon koppints a képernyőre: a kezelőszervek maguktól megjelennek.
+        Fektesd el a készüléket — a játék fekvő képre készült.
+      </p>
+    </div>
+  </div>
+
+  <!-- Álló telefonon a 16:9-es kép postabélyeg méretű lenne. Tisztán CSS:
+       csak érintős, álló képernyőn jelenik meg, JavaScript nem kell hozzá. -->
+  <div id="rotate" class="rotate" aria-hidden="true">
+    <div class="rotate-inner">
+      <div class="rotate-icon">⟳</div>
+      <p class="rotate-text">Fordítsd el a telefont</p>
+      <p class="rotate-sub">A Slag fekvő képre készült.</p>
     </div>
   </div>
 

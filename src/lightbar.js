@@ -272,4 +272,4 @@ export const Lightbar = {
 };
 
 /** Tesztelhetőség: a riport-összeállítás önmagában is ellenőrizhető. */
-export const __test = { buildReport, crc32, detectProtocol, hexToRgb };
+export const __lightbarTest = { buildReport, crc32, detectProtocol, hexToRgb };
