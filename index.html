@@ -36,6 +36,14 @@
     </div>
   </div>
 
+  <!-- A kontroller fénysávja. Külön gomb, mert a WebHID engedélykérőjét csak
+       valódi kattintás nyitja meg — gamepad-gombnyomás nem elég neki. Ha a
+       böngésző nem tud WebHID-et, lightbar-ui.js rejtve hagyja. -->
+  <div id="light" class="light" hidden>
+    <button id="light-btn" class="online-tab" type="button">Kontroller fénye</button>
+    <p id="light-status" class="light-status"></p>
+  </div>
+
   <!-- Online szoba. Szándékosan DOM és nem canvas: itt kell linket másolni és
        szobakódot beírni, amihez valódi szövegmező és vágólap kell. A lobbi
        fölött lebeg, a meccs alatt összecsukva. online-ui.js tölti meg. -->

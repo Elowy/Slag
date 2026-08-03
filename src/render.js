@@ -1854,9 +1854,9 @@ function drawPauseOverlay(ctx, info, t) {
 
 /** Lobby slot card geometry. */
 const SLOT_W = 356;
-// A kártya magasságát a beállítás-sáv szabja meg: a gépi ellenfelek két új
-// sorral bővítették, és a lobbi egyetlen képernyőre fér ki görgetés nélkül.
-const SLOT_H = 336;
+// A kártya magasabb lett, amióta a beállítások saját lapra kerültek: a
+// felszabadult helyet a tank-előnézet kapta meg, nem üresen hagyjuk.
+const SLOT_H = 430;
 const SLOT_GAP = 16;
 const SLOT_Y = 158;
 const SLOT_X0 = (LOGICAL_W - (SLOT_W * 4 + SLOT_GAP * 3)) / 2;
@@ -1879,8 +1879,8 @@ const SLOT_X0 = (LOGICAL_W - (SLOT_W * 4 + SLOT_GAP * 3)) / 2;
 const SLOT_R = 18;
 const SLOT_PAD = 18;
 const SLOT_HEAD_Y = 32;
-const SLOT_TANK_Y = 122;
-const SLOT_BAR_Y = 212;
+const SLOT_TANK_Y = 160;
+const SLOT_BAR_Y = 286;
 
 /** A közös beállítás-panel mértékei. */
 const SET_W = 760;
@@ -1914,6 +1914,7 @@ const LOBBY_HINTS = [
   ['R2', 'lövés'],
   ['Bal stick', 'külön célzás (opcionális)'],
   ['Options', 'indítás'],
+  ['L1 / R1', 'lapváltás'],
   ['F', 'teljes képernyő'],
   ['M', 'némítás'],
 ];
@@ -1983,16 +1984,18 @@ function slotFocus(slot) {
 function trackedText(ctx, text, cx, y, tracking) {
   // A gyors út: a böngésző saját betűközét használjuk, egyetlen rajzolással.
   if ('letterSpacing' in ctx) {
-    const prev = ctx.letterSpacing;
+    // save()/restore() és nem kézi visszaállítás: a `letterSpacing` a rajzolási
+    // állapot része, és kézzel visszaírva átszivárgott a KÖVETKEZŐ sorokra
+    // (a szobakód alatti magyarázat ritkított betűkkel jelent meg). A
+    // save/restore pár ezt eleve kizárja.
+    ctx.save();
     ctx.letterSpacing = `${tracking}px`;
-    const prevAlign = ctx.textAlign;
     ctx.textAlign = 'center';
     // A betűköz az UTOLSÓ betű után is hozzáadódik, ezért a fele szélességgel
     // balra toljuk a középpontot — így a szöveg optikailag valóban középen áll.
     ctx.fillText(String(text), cx - tracking / 2, y);
     const w = ctx.measureText(String(text)).width - tracking;
-    ctx.textAlign = prevAlign;
-    ctx.letterSpacing = prev;
+    ctx.restore();
     return w;
   }
   const chars = Array.from(String(text));
@@ -2110,6 +2113,13 @@ export function drawLobby(ctxOrWrapper, lobby, t) {
   drawLobbyBackground(ctx, time);
   drawLobbyTitle(ctx, time);
 
+  // ---- lapfejléc ----
+  const sections = Array.isArray(lobby.sections) ? lobby.sections : [];
+  const active = Number.isFinite(lobby.section) ? lobby.section : 0;
+  if (sections.length > 1) drawSectionTabs(ctx, sections, active, time);
+
+  const id = sections.length ? (sections[active] && sections[active].id) : 'players';
+
   // ---- taken colours (a colour may only be used once) ----
   const taken = new Map();
   for (let i = 0; i < 4; i++) {
@@ -2117,14 +2127,22 @@ export function drawLobby(ctxOrWrapper, lobby, t) {
     if (s && s.colorId) taken.set(s.colorId, i);
   }
 
-  // ---- slot cards ----
-  for (let i = 0; i < 4; i++) {
-    const x = SLOT_X0 + i * (SLOT_W + SLOT_GAP);
-    drawLobbySlot(ctx, x, SLOT_Y, slots[i], i, taken, time);
+  // A JÁTÉKOSOK lap az alapértelmezett és a leggyakoribb: a négy kártya és a
+  // start marad rajta, minden más a saját lapjára került. A többi lap a
+  // kártyák helyén kap egy nagy, nyugodt panelt.
+  if (id === 'players' || sections.length <= 1) {
+    for (let i = 0; i < 4; i++) {
+      const x = SLOT_X0 + i * (SLOT_W + SLOT_GAP);
+      drawLobbySlot(ctx, x, SLOT_Y, slots[i], i, taken, time);
+    }
+    drawMatchSummary(ctx, lobby);
+  } else if (id === 'online') {
+    drawOnlineSection(ctx, lobby, time);
+  } else if (id === 'help') {
+    drawHelpSection(ctx);
+  } else {
+    drawSettingsSection(ctx, lobby, slots, id);
   }
-
-  // ---- shared settings ----
-  drawLobbySettings(ctx, settings, slots, lobby.settingRows);
 
   // ---- controller hint / start prompt / help ----
   drawLobbyFooter(ctx, lobby, canStart, time);
@@ -2170,11 +2188,6 @@ function drawLobbyTitle(ctx, t) {
   }
   ctx.globalAlpha = 1;
 
-  const sub = '4 fős helyi tankcsata — egy képernyő, egy kanapé';
-  const tracking = 2.4;
-  fitFont(ctx, sub, LOGICAL_W - 200 - tracking * sub.length, 18, 700);
-  ctx.fillStyle = 'rgba(148, 163, 184, 0.92)';
-  trackedText(ctx, sub, LOGICAL_W / 2, 120, tracking);
   ctx.restore();
 }
 
@@ -2302,7 +2315,7 @@ function drawSlotPreview(ctx, col, index, t, alpha) {
   // 357-ig ért le, a szín-súgó betűtetői viszont 345-nél kezdődnek: a sötét
   // lánctalp-sarok átfutott a szövegen. 2,2-szeres méret és y+122 középpont
   // mellett a kettő elválik.
-  ctx.scale(2.2, 2.2);
+  ctx.scale(2.9, 2.9);
   const preview = {
     index,
     color: col,
@@ -2366,13 +2379,13 @@ function drawLobbySlot(ctx, x, y, slot, index, taken, t) {
     ctx.fill();
 
     const glow = cachedGradient(ctx, `lob-glow-${col.id}`, (c) => {
-      const g = c.createRadialGradient(SLOT_W / 2, SLOT_TANK_Y, 10, SLOT_W / 2, SLOT_TANK_Y, 118);
+      const g = c.createRadialGradient(SLOT_W / 2, SLOT_TANK_Y, 10, SLOT_W / 2, SLOT_TANK_Y, 150);
       g.addColorStop(0, hexToRgba(col.main, 0.20));
       g.addColorStop(1, hexToRgba(col.main, 0));
       return g;
     });
     ctx.fillStyle = glow;
-    ctx.fillRect(SLOT_W / 2 - 118, SLOT_TANK_Y - 118, 236, 236);
+    ctx.fillRect(SLOT_W / 2 - 150, SLOT_TANK_Y - 150, 300, 300);
 
     // Az akcentus-csík MINDIG a játékos színe: az állapotot a keret és a
     // jelvény mondja el, a szín pedig végig ugyanazt a széket jelenti.
@@ -2612,6 +2625,325 @@ function drawBotGlyph(ctx, cx, cy, color) {
   ctx.restore();
 }
 
+/* ------------------------------------------------------------------------ *
+ * Lapok
+ *
+ * A lobbi korábban egyetlen képernyőn mutatott mindent. A lapok nem rejtenek
+ * el semmit, csak csoportosítanak: a leggyakoribb dolog (kik játszanak, és
+ * indulhat-e) maradt az első lapon, a ritkábban állított beállítások és a
+ * referencia a sajátjukra került.
+ * ------------------------------------------------------------------------ */
+
+/** A lapfejléc sávja a cím alatt. */
+/** Az összegző sor a kártyák alatt a Játékosok lapon. */
+const SUMMARY_Y = 630;
+
+const TAB_Y = 124;
+const TAB_H = 34;
+
+function drawSectionTabs(ctx, sections, active, t) {
+  ctx.save();
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center';
+
+  const padX = 18;
+  const gap = 8;
+  const widths = [];
+  let total = 0;
+  for (let i = 0; i < sections.length; i++) {
+    ctx.font = font(17, i === active ? 800 : 600);
+    const w = Math.round(ctx.measureText(sections[i].name).width) + padX * 2;
+    widths.push(w);
+    total += w;
+  }
+  total += gap * (sections.length - 1);
+
+  let x = (LOGICAL_W - total) / 2;
+  for (let i = 0; i < sections.length; i++) {
+    const w = widths[i];
+    const on = i === active;
+    if (on) {
+      const pulse = 0.75 + 0.25 * (0.5 + 0.5 * Math.sin(t * 2.4));
+      fillRoundRect(ctx, x, TAB_Y - TAB_H / 2, w, TAB_H, TAB_H / 2, 'rgba(129, 140, 248, 0.22)');
+      strokeRoundRect(ctx, x + 0.75, TAB_Y - TAB_H / 2 + 0.75, w - 1.5, TAB_H - 1.5,
+        TAB_H / 2 - 0.75, `rgba(165, 180, 252, ${pulse})`, 1.75);
+    }
+    ctx.font = font(17, on ? 800 : 600);
+    ctx.fillStyle = on ? '#e0e7ff' : 'rgba(148, 163, 184, 0.75)';
+    ctx.fillText(sections[i].name, x + w / 2, TAB_Y);
+    x += w + gap;
+  }
+
+  ctx.restore();
+}
+
+/** A lapok közös törzspanele — ott, ahol a Játékosok lapon a kártyák vannak. */
+function sectionBody(ctx, title, subtitle) {
+  const x = SLOT_X0;
+  const w = SLOT_W * 4 + SLOT_GAP * 3;
+  const y = SLOT_Y + 24;
+  const h = 430;
+  lobbyPanel(ctx, x, y, w, h, 20, 'sec:body',
+    'rgba(23, 30, 46, 0.96)', 'rgba(12, 17, 28, 0.96)', 'rgba(148, 163, 184, 0.24)');
+
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = font(26, 800);
+  ctx.fillStyle = '#e2e8f0';
+  ctx.fillText(title, LOGICAL_W / 2, y + 40);
+  if (subtitle) {
+    ctx.font = font(15, 600);
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.85)';
+    fitFont(ctx, subtitle, w - 120, 15, 600);
+    ctx.fillText(subtitle, LOGICAL_W / 2, y + 70);
+  }
+  ctx.restore();
+  return { x, y, w, h };
+}
+
+/** Meccs / Ellenfelek: a lap saját beállítássorai, nagyban. */
+/**
+ * A Játékosok lapon: EGY sorban, olvashatóan, hogy milyen szabályokkal indul
+ * a meccs. Csak kijelzés — állítani a saját lapján lehet. Így a leggyakoribb
+ * képernyő nem lesz zsúfolt, de nem is kell lapozni ahhoz, hogy lásd, mi van
+ * beállítva.
+ */
+function drawMatchSummary(ctx, lobby) {
+  const s = lobby.settings || {};
+  const parts = [
+    ['Pálya', arenaLabel(s.arenaId)],
+    ['Cél', `${s.pointsToWin ?? CONFIG.match.pointsToWin} pont`],
+    ['Pattogó', s.bounce === false ? 'KI' : 'BE'],
+    ['Gépi ellenfelek', Number.isFinite(lobby.botCount) && lobby.botCount > 0
+      ? String(lobby.botCount) : 'nincs'],
+  ];
+
+  ctx.save();
+  ctx.textBaseline = 'middle';
+
+  const y = SUMMARY_Y;
+  const gap = 30;
+  const sizes = [];
+  let total = 0;
+  for (let i = 0; i < parts.length; i++) {
+    ctx.font = font(15, 600);
+    const lw = ctx.measureText(`${parts[i][0]}: `).width;
+    ctx.font = font(15, 800);
+    const vw = ctx.measureText(parts[i][1]).width;
+    sizes.push({ lw, vw });
+    total += lw + vw;
+  }
+  total += gap * (parts.length - 1);
+
+  let x = (LOGICAL_W - total) / 2;
+  for (let i = 0; i < parts.length; i++) {
+    ctx.textAlign = 'left';
+    ctx.font = font(15, 600);
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.8)';
+    ctx.fillText(`${parts[i][0]}: `, x, y);
+    x += sizes[i].lw;
+
+    ctx.font = font(15, 800);
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillText(parts[i][1], x, y);
+    x += sizes[i].vw;
+
+    if (i < parts.length - 1) {
+      ctx.fillStyle = 'rgba(148, 163, 184, 0.35)';
+      ctx.textAlign = 'center';
+      ctx.fillText('·', x + gap / 2, y);
+      x += gap;
+    }
+  }
+
+  ctx.textAlign = 'center';
+  ctx.font = font(13, 600);
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.6)';
+  ctx.fillText('A Meccs és az Ellenfelek lapon állítható', LOGICAL_W / 2, y + 26);
+  ctx.restore();
+}
+
+function drawSettingsSection(ctx, lobby, slots, id) {
+  const title = id === 'match' ? 'A meccs szabályai' : 'Gépi ellenfelek';
+  const sub = id === 'match'
+    ? 'Ezek mindenkire vonatkoznak — bármelyik játékos állíthatja.'
+    : 'Töltsd fel a szabad helyeket géppel, ha kevesen vagytok.';
+  const box = sectionBody(ctx, title, sub);
+
+  const rows = Array.isArray(lobby.settingRows) ? lobby.settingRows : [];
+  if (!rows.length) return;
+
+  const rowH = 62;
+  const listW = 760;
+  const listX = LOGICAL_W / 2 - listW / 2;
+  let y = box.y + 120;
+
+  ctx.save();
+  ctx.textBaseline = 'middle';
+  for (let i = 0; i < rows.length; i++) {
+    // Kik állnak ezen a soron (a lapon belüli sorszám a `row`).
+    const focusedBy = [];
+    for (let sIdx = 0; sIdx < slots.length; sIdx++) {
+      const slot = slots[sIdx];
+      if (slot && !slot.isBot && slotFocus(slot) === rows[i].row) {
+        focusedBy.push(resolveColor(slot.colorId || slot.color));
+      }
+    }
+
+    const accent = focusedBy.length ? focusedBy[0] : null;
+    fillRoundRect(ctx, listX, y, listW, rowH - 8, 12,
+      focusedBy.length ? 'rgba(255, 255, 255, 0.07)' : 'rgba(255, 255, 255, 0.03)');
+    if (accent) {
+      fillRoundRect(ctx, listX, y, 5, rowH - 8, 2.5, accent.main);
+      strokeRoundRect(ctx, listX + 0.75, y + 0.75, listW - 1.5, rowH - 9.5, 11.25,
+        hexToRgba(accent.main, 0.55), 1.5);
+    }
+
+    ctx.textAlign = 'left';
+    ctx.font = font(21, 700);
+    ctx.fillStyle = focusedBy.length ? '#f1f5f9' : 'rgba(203, 213, 225, 0.8)';
+    ctx.fillText(rows[i].label, listX + 28, y + (rowH - 8) / 2);
+
+    ctx.textAlign = 'right';
+    ctx.font = font(22, 800);
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillText(rows[i].value, listX + listW - 52, y + (rowH - 8) / 2);
+    const arrow = focusedBy.length ? 'rgba(226, 232, 240, 0.95)' : 'rgba(148, 163, 184, 0.5)';
+    chevron(ctx, listX + listW - 30, y + (rowH - 8) / 2, 1, 7, arrow, 2.8);
+    chevron(ctx, listX + listW - 210, y + (rowH - 8) / 2, -1, 7, arrow, 2.8);
+
+    y += rowH;
+  }
+
+  ctx.textAlign = 'center';
+  ctx.font = font(14, 600);
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.7)';
+  ctx.fillText('D-pad fel/le — sor   ·   bal/jobb — érték', LOGICAL_W / 2, box.y + box.h - 34);
+  ctx.restore();
+}
+
+/** Online: a szobakód és a link nagyban, olvashatóan a szoba túloldalának. */
+function drawOnlineSection(ctx, lobby, t) {
+  const net = lobby.net || {};
+  const box = sectionBody(ctx, 'Online szoba',
+    'Játssz távoli barátokkal — a szobát a jobb felső panelen nyitod meg.');
+
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  if (net.mode === 'host' || net.mode === 'client') {
+    ctx.font = font(15, 700);
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.9)';
+    ctx.fillText('SZOBAKÓD', LOGICAL_W / 2, box.y + 140);
+
+    ctx.font = font(76, 900);
+    ctx.fillStyle = '#f8fafc';
+    trackedText(ctx, net.code || '------', LOGICAL_W / 2, box.y + 200, 12);
+
+    ctx.font = font(17, 600);
+    ctx.fillStyle = 'rgba(226, 232, 240, 0.85)';
+    const line = net.mode === 'host'
+      ? (net.peers > 0
+        ? `${net.peers} játékos csatlakozott — ők ugyanúgy beülnek egy helyre, mint aki melletted ül.`
+        : 'Még senki nem csatlakozott. Küldd el a linket a jobb felső panelről!')
+      : 'Csatlakozva. A gazda gépén fut a meccs — te az ő képét látod.';
+    fitFont(ctx, line, box.w - 140, 17, 600);
+    ctx.fillText(line, LOGICAL_W / 2, box.y + 268);
+
+    if (net.mode === 'host') {
+      ctx.font = font(14, 600);
+      ctx.fillStyle = 'rgba(148, 163, 184, 0.75)';
+      ctx.fillText('A meccs a te gépeden fut, tehát a te kapcsolatod számít.',
+        LOGICAL_W / 2, box.y + 316);
+    }
+  } else {
+    ctx.font = font(19, 600);
+    ctx.fillStyle = 'rgba(226, 232, 240, 0.8)';
+    const lines = [
+      'Nyiss szobát a jobb felső „Online szoba” panelen,',
+      'és küldd el a kapott linket. Aki megnyitja, magától becsatlakozik,',
+      'és ugyanúgy elfoglal egy helyet, mintha melletted ülne.',
+    ];
+    for (let i = 0; i < lines.length; i++) {
+      fitFont(ctx, lines[i], box.w - 140, 19, 600);
+      ctx.fillText(lines[i], LOGICAL_W / 2, box.y + 160 + i * 34);
+    }
+    ctx.font = font(15, 600);
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.7)';
+    ctx.fillText('Ehhez a játékot kiszolgáló gépen futnia kell a szoba-kiszolgálónak.',
+      LOGICAL_W / 2, box.y + 300);
+  }
+  ctx.restore();
+}
+
+/** Irányítás: a teljes referencia, ami eddig a lábléc három sorát foglalta. */
+function drawHelpSection(ctx) {
+  const box = sectionBody(ctx, 'Irányítás', 'Kontroller és billentyűzet — minden, ami kell.');
+
+  const colW = (box.w - 120) / 2;
+  const leftX = box.x + 40;
+  const rightX = box.x + box.w / 2 + 20;
+  const top = box.y + 110;
+
+  const pad = [
+    ['Jobb stick', 'mozgás'],
+    ['R2', 'lövés'],
+    ['Bal stick', 'külön toronycélzás (opcionális)'],
+    ['Kereszt', 'kész / visszavágó'],
+    ['Kör', 'kész visszavonása, majd kilépés'],
+    ['Options', 'meccs indítása · szünet'],
+    ['L1 / R1', 'lapváltás a menüben'],
+    ['D-pad', 'fel/le sor, bal/jobb érték'],
+  ];
+  const kb = [
+    ['W A S D', 'mozgás (1. billentyűzet)'],
+    ['Nyilak', 'célzás'],
+    ['Szóköz', 'lövés'],
+    ['Enter', 'kész / indítás'],
+    ['Esc', 'kilépés'],
+    ['Q / E', 'érték állítása'],
+    ['Tab', 'lapváltás'],
+    ['I J K L + Numpad', '2. billentyűzet'],
+  ];
+
+  ctx.save();
+  ctx.textBaseline = 'middle';
+
+  const column = (x, title, list) => {
+    ctx.textAlign = 'left';
+    ctx.font = font(17, 800);
+    ctx.fillStyle = '#c7d2fe';
+    ctx.fillText(title, x, top);
+
+    let y = top + 34;
+    for (let i = 0; i < list.length; i++) {
+      const [k, l] = list[i];
+      ctx.font = font(15, 800);
+      const kw = Math.round(ctx.measureText(k).width);
+      fillRoundRect(ctx, x, y - 13, kw + 18, 26, 6, 'rgba(148, 163, 184, 0.18)');
+      strokeRoundRect(ctx, x + 0.5, y - 12.5, kw + 17, 25, 5.5, 'rgba(148, 163, 184, 0.35)', 1);
+      ctx.fillStyle = '#e2e8f0';
+      ctx.fillText(k, x + 9, y);
+
+      ctx.font = font(15, 600);
+      ctx.fillStyle = 'rgba(203, 213, 225, 0.8)';
+      const label = k === 'Bal stick' || k === 'Kör' ? l : l;
+      fitFont(ctx, label, colW - kw - 40, 15, 600);
+      ctx.fillText(label, x + kw + 30, y);
+      y += 34;
+    }
+  };
+
+  column(leftX, 'KONTROLLER', pad);
+  column(rightX, 'BILLENTYŰZET', kb);
+
+  // Az „F / M" sor szándékosan NEM ismétlődik itt: a lábléc kupakjai között
+  // amúgy is ott van, és a nyolcadik sorral egymásra írnának.
+  ctx.restore();
+}
+
 function drawLobbySettings(ctx, settings, slots, lobbyRows) {
   // A sorok a lobbitól jönnek, ha van honnan: így egy új beállítás sosem
   // maradhat le a képernyőről csak azért, mert itt kézzel is fel volt sorolva.
@@ -2844,8 +3176,10 @@ function drawLobbyFooter(ctx, lobby, canStart, t) {
   // Keyboard legend: movement AND the menu keys, because a keyboard player has
   // no Cross / Circle / Options to press.
   ctx.textAlign = 'center';
-  const kbA = 'Billentyűzet A: WASD + nyilak + Space   ·   kész/indítás: Enter, kilépés: Esc, szín: Q / E';
-  const kbB = 'Billentyűzet B: IJKL + Numpad 8/4/5/6 + Numpad 0   ·   kész/indítás: Numpad Enter, kilépés: Numpad ., szín: U / O';
+  // A billentyűzet teljes kiosztása az `Irányítás` lapon van; a lábléc csak
+  // annyit mond, hol keresd. Így egy sorral rövidebb és nyugodtabb a kép.
+  const kbA = 'Billentyűzet: WASD + nyilak + Space, illetve IJKL + Numpad';
+  const kbB = 'A teljes kiosztás az Irányítás lapon';
   ctx.fillStyle = 'rgba(148, 163, 184, 0.6)';
   fitFont(ctx, kbA, LOGICAL_W - 60, 14, 600);
   ctx.fillText(kbA, LOGICAL_W / 2, 876);

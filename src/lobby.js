@@ -5,17 +5,14 @@
  * `render.js` reads `slots`, `settingRows`, `devices` and `texts` and paints
  * them, `main.js` polls `started` and hands `playersForGame()` to the `Game`.
  *
- * FOCUS MODEL (the spec offers two options, this is the chosen one)
- * Left/right would collide between the colour picker and the shared settings,
- * so every player has a vertical FOCUS instead:
+ * LAPOK ÉS FÓKUSZ
+ * A lobbi lapokra van osztva (`SECTIONS`): Játékosok, Meccs, Ellenfelek,
+ * Online, Irányítás. A lap KÖZÖS — egy képernyő van, tehát aki lapoz, az
+ * mindenkinek lapoz. Váltás: L1 / R1 a kontrolleren, Tab a billentyűzeten.
  *
- *     row 0 : own colour       (D-pad left/right cycles the colour)
- *     row 1 : Pattogó lövedék  (shared)
- *     row 2 : Pálya            (shared)
- *     row 3 : Cél              (shared)
- *
- * D-pad up/down moves that focus, left/right changes the value of the focused
- * row. Rows 1-3 are shared: whoever changes them changes them for everybody.
+ * A lapon belül minden játékosnak SAJÁT függőleges fókusza van (D-pad fel/le),
+ * a D-pad bal/jobb pedig a fókuszált sor értékét állítja. A `'color'` sor a
+ * játékos saját színe, a többi sor közös: aki állítja, mindenkinek állítja.
  *
  * INPUT IS CONSUMED PER FRAME, NOT PER STEP
  * `consumeInput()` reads every button edge and `update(dt)` only advances the
@@ -53,8 +50,33 @@ const SETTING_ROWS = [
   { key: 'points', label: 'Cél' },
 ];
 
-/** Total number of focusable rows: the colour row plus the shared settings. */
-const ROW_COUNT = 1 + SETTING_ROWS.length;
+/**
+ * A lobbi LAPJAI.
+ *
+ * Korábban minden egyetlen képernyőn volt: négy játékoskártya, öt beállítás,
+ * az online panel és három sor billentyű-referencia. Ez működött, de sok volt
+ * egyszerre, és semmi nem mutatta, mi tartozik össze.
+ *
+ * A lapokra bontás nem lassítja a kanapés indulást: a `Játékosok` az alapértel-
+ * mezett lap, tehát az „R2 → Kereszt → Options" út egyetlen lapváltás nélkül
+ * megvan. A ritkán állított dolgok és a referencia csak akkor kerülnek a
+ * képernyőre, ha valaki tényleg keresi őket.
+ *
+ * `rows` a lapon fókuszálható sorok. A `'color'` a játékos saját színe (ezt
+ * mindenki külön állítja), a többi a `SETTING_ROWS` egy-egy kulcsa.
+ */
+const SECTIONS = [
+  { id: 'players', name: 'Játékosok', rows: ['color'] },
+  { id: 'match', name: 'Meccs', rows: ['arena', 'points', 'bounce'] },
+  { id: 'bots', name: 'Ellenfelek', rows: ['bots', 'botLevel'] },
+  { id: 'online', name: 'Online', rows: [] },
+  { id: 'help', name: 'Irányítás', rows: [] },
+];
+
+/** @returns {object|undefined} a `SETTING_ROWS` bejegyzése kulcs szerint. */
+function settingRow(key) {
+  return SETTING_ROWS.find((r) => r.key === key);
+}
 
 /** Score limit range offered in the lobby. */
 const MIN_POINTS = 5;
@@ -144,6 +166,9 @@ export class Lobby {
 
     this._started = false;
     this._inputBlock = REOPEN_INPUT_BLOCK;
+
+    /** Az aktív lap sorszáma a `SECTIONS`-ben. Közös: egy képernyő van. */
+    this._section = 0;
 
     /**
      * Set once `consumeInput()` has been called from the outside. From then on
@@ -265,9 +290,24 @@ export class Lobby {
     return TEXTS;
   }
 
-  /** @returns {number} number of focusable rows (colour + shared settings). */
+  /** @returns {Array<{id:string, name:string}>} a lapok, a fejléchez. */
+  get sections() {
+    return SECTIONS.map((sec) => ({ id: sec.id, name: sec.name }));
+  }
+
+  /** @returns {number} az aktív lap sorszáma. */
+  get section() {
+    return this._section;
+  }
+
+  /** @returns {string} az aktív lap azonosítója. */
+  get sectionId() {
+    return SECTIONS[this._section].id;
+  }
+
+  /** @returns {number} hány fókuszálható sor van AZ AKTÍV lapon. */
   get rowCount() {
-    return ROW_COUNT;
+    return SECTIONS[this._section].rows.length;
   }
 
   /**
@@ -275,12 +315,20 @@ export class Lobby {
    * @returns {Array<{key:string, label:string, value:string, row:number}>}
    */
   get settingRows() {
-    return SETTING_ROWS.map((row, i) => ({
-      key: row.key,
-      label: row.label,
-      value: this._settingValueText(row.key),
-      row: i + 1,
-    }));
+    const rows = SECTIONS[this._section].rows;
+    const out = [];
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i] === 'color') continue;         // a szín a kártyán állítható
+      const def = settingRow(rows[i]);
+      if (!def) continue;
+      out.push({
+        key: def.key,
+        label: def.label,
+        value: this._settingValueText(def.key),
+        row: i,
+      });
+    }
+    return out;
   }
 
   /**
@@ -315,7 +363,11 @@ export class Lobby {
    */
   reset() {
     this._started = false;
+    this._section = 0;
     this._inputBlock = REOPEN_INPUT_BLOCK;
+
+    /** Az aktív lap sorszáma a `SECTIONS`-ben. Közös: egy képernyő van. */
+    this._section = 0;
     this.time = 0;
   }
 
@@ -475,6 +527,7 @@ export class Lobby {
       latch = {
         confirm: false, cancel: false, prev: false, next: false,
         up: false, down: false, start: false, fire: false,
+        tabPrev: false, tabNext: false,
       };
       this._latches.set(deviceId, latch);
     }
@@ -489,6 +542,8 @@ export class Lobby {
       down: state.downPressed && !latch.down,
       start: state.startPressed && !latch.start,
       fire: state.firePressed && !latch.fire,
+      tabPrev: state.tabPrevPressed && !latch.tabPrev,
+      tabNext: state.tabNextPressed && !latch.tabNext,
     };
 
     latch.confirm = !!state.confirmPressed;
@@ -499,12 +554,22 @@ export class Lobby {
     latch.down = !!state.downPressed;
     latch.start = !!state.startPressed;
     latch.fire = !!state.firePressed;
+    latch.tabPrev = !!state.tabPrevPressed;
+    latch.tabNext = !!state.tabNextPressed;
 
     return out;
   }
 
   /** Applies one player's input to their slot. @private */
   _handleSlot(slot, slotIndex, edge) {
+    // Lapváltás elsőbbséget élvez: ha ebben a körben lapot váltottunk, a többi
+    // él már az ÚJ lapra vonatkozna, ami zavaró (egy L1 azonnal értéket
+    // állítana a szomszéd lapon). Ilyenkor a kör többi részét kihagyjuk.
+    if (edge.tabPrev || edge.tabNext) {
+      this._moveSection(edge.tabNext ? 1 : -1);
+      return;
+    }
+
     // Vertical focus: own colour row <-> shared setting rows.
     if (edge.up) this._moveFocus(slot, -1);
     if (edge.down) this._moveFocus(slot, 1);
@@ -534,18 +599,38 @@ export class Lobby {
 
   /** @private */
   _moveFocus(slot, dir) {
-    slot.focus = (slot.focus + dir + ROW_COUNT) % ROW_COUNT;
+    const n = SECTIONS[this._section].rows.length;
+    if (n <= 1) return;                          // egysoros lapon nincs mit lépni
+    slot.focus = (slot.focus + dir + n) % n;
     Audio.play('colorChange', { volume: 0.35, rate: 1.4 });
+  }
+
+  /**
+   * Lapváltás. KÖZÖS: egy képernyő van, tehát mindenkinek ugyanaz a lap.
+   * A fókusz minden slotnál az új lap első sorára ugrik, különben egy rövidebb
+   * lapon a régi sorszám a semmibe mutatna.
+   * @private
+   */
+  _moveSection(dir) {
+    const next = (this._section + dir + SECTIONS.length) % SECTIONS.length;
+    if (next === this._section) return;
+    this._section = next;
+    for (let i = 0; i < this._slots.length; i++) {
+      if (this._slots[i]) this._slots[i].focus = 0;
+    }
+    Audio.play('colorChange', { volume: 0.5, rate: 0.9 });
   }
 
   /** Changes the value of the row the player currently focuses. @private */
   _applyRow(slot, dir) {
-    if (slot.focus === ROW_COLOR) {
+    const rows = SECTIONS[this._section].rows;
+    const key = rows[slot.focus];
+    if (!key) return;
+    if (key === 'color') {
       this._cycleColor(slot, dir);
       return;
     }
-    const row = SETTING_ROWS[slot.focus - 1];
-    if (row) this._adjustSetting(row.key, dir);
+    this._adjustSetting(key, dir);
   }
 
   /**

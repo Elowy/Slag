@@ -92,6 +92,30 @@ megnyomott rajta egy gombot**. Ezért:
 Ha ezt megtettétek, a lobbiban azonnal megjelenik mind a négy „Kontroller” felirat.
 Minden padot külön-külön be kell „ébreszteni” egy gombnyomással.
 
+### A kontroller fénysávja a saját színedben
+
+A bal felső sarokban van egy **„Kontroller fénye”** gomb. Ha rákattintasz, és a
+felugró ablakban kiválasztod a kontrollert, a **fénysávja onnantól abban a
+színben világít, amit a lobbiban választottál** — és a színváltást azonnal
+követi. Meccs közben végig ég, így egy pillantással látod, melyik pad kié.
+
+Több kontrollernél nyisd meg a gombot egyszer, és a listából **jelöld ki
+mindet** (Ctrl-kattintás), vagy kattints rá egyesével.
+
+Tudnivalók:
+
+| | |
+|---|---|
+| **Böngésző** | Csak Chrome / Edge / Opera / Brave — a fénysávhoz WebHID kell, ami Firefoxban és Safariban nincs. Ott a gomb meg sem jelenik, a játék változatlanul megy. |
+| **HTTPS** | Ugyanúgy kell hozzá, mint a kontrollerhez (`localhost` is jó). |
+| **Kattintás kell** | A böngésző az engedélykérőt csak valódi egérkattintásra nyitja meg — kontrollergombra nem. Ezért van rá külön gomb. |
+| **Sorrend** | A böngésző nem árulja el, melyik engedélyezett eszköz melyik kontroller. A **megadás sorrendje** dönt: az elsőnek engedélyezett eszköz az első csatlakoztatott kontrolleré. Ha felcserélődnének, töltsd újra az oldalt, és add meg őket a kívánt sorrendben. |
+| **Támogatott** | DualSense (PS5) kábelen és Bluetooth-on, DualShock 4 (PS4) kábelen. Más kontrollernek nincs vezérelhető fénye. |
+| **Online** | Vendégként (más szobájában) a fény halvány alapszínen marad: onnan nem látszik hitelesen, melyik ülés a tiéd. |
+
+Az engedélyt elég egyszer megadni: a következő betöltéskor a játék magától
+visszaveszi. Az oldal bezárásakor a fény lekapcsol.
+
 ---
 
 ## 3. Vezérlés
@@ -122,8 +146,9 @@ A meccs magától megáll, ha valami elvenné tőletek az irányítást:
 | Gomb | Mit csinál |
 |---|---|
 | **R2** vagy **Kereszt** | Csatlakozás a szabad helyre, majd „Kész” jelzés |
-| **D-pad fel / le** | Váltás a saját szín-sor és a közös beállítások (Pattogó lövedék / Pálya / Cél) között |
-| **D-pad bal / jobb** vagy **L1 / R1** | Az aktuális sor értékének állítása (szín vagy beállítás) |
+| **L1 / R1** | Lapváltás a menüben (Játékosok · Meccs · Ellenfelek · Online · Irányítás) |
+| **D-pad fel / le** | Sorváltás az aktuális lapon |
+| **D-pad bal / jobb** | Az aktuális sor értékének állítása |
 | **Kör** | Először visszavonja a „Kész” jelzést, utána kilépés a helyről |
 | **Options** | A meccs indítása (legalább 2 **kész** játékos kell) |
 
@@ -151,6 +176,7 @@ helyek mindig elérhetők a lobbiban.
 | Lövés | `Szóköz` | `Numpad 0` |
 | Csatlakozás / Kész / OK | `Enter` | `Numpad Enter` |
 | Kilépés / Vissza | `Esc` | `Numpad .` vagy `Backspace` |
+| Lapváltás a menüben | `Tab` | `Tab` |
 | Sorváltás a lobbiban | `W` / `S` vagy `↑` / `↓` | `I` / `K` vagy `Numpad 8` / `5` |
 | Érték állítása (szín, beállítás) | `Q` / `E` vagy `←` / `→` | `U` / `O` vagy `Numpad 4` / `6` |
 | Meccs indítása | `Enter` (már kész állapotban) | `Numpad Enter` (már kész állapotban) |
@@ -183,6 +209,21 @@ lenyomás mindig pontosan egy dolgot csinál; a készt az `Esc` vonja vissza.
 - **Egyszerre legfeljebb 5 lövedéked** lehet a levegőben (Gyorstűzzel 8).
 - A tankod mellett mindig ott a **sorszámod nagy, kontrasztos számmal** — így akkor is
   megtalálod magad, ha a színeket nehezen különbözteted meg.
+
+### A menü felépítése
+
+A lobbi lapokra van osztva — **L1 / R1** (vagy `Tab`) vált köztük:
+
+| Lap | Mi van rajta |
+|---|---|
+| **Játékosok** | A négy hely, a színválasztás és az indítás. Ez az alapértelmezett: az „R2 → Kereszt → Options” út egyetlen lapváltás nélkül megvan. |
+| **Meccs** | Pálya, cél pontszám, pattogó lövedék |
+| **Ellenfelek** | Hány gépi ellenfél, és milyen szinten |
+| **Online** | A szobakód és az állapot |
+| **Irányítás** | A teljes kiosztás, kontrollerre és billentyűzetre |
+
+A Játékosok lapon egy sorban ott a lényeg (pálya, cél, pattogó, gépek száma),
+tehát a beállítások megnézéséhez sem kell lapozni — csak az állításukhoz.
 
 ### Beállítások a lobbiban
 
@@ -263,6 +304,18 @@ A `dist/slag.html`-t a módosítás után újra kell építeni (`npm run build`)
 - Lehet, hogy a játék némítva van: nyomj **`M`**-et.
 - Nézd meg, nincs-e maga a böngészőlap némítva (jobb klikk a lapfülön).
 
+### Nem világít a kontroller fénysávja
+
+- **Nincs ott a gomb a bal felső sarokban?** A böngésződ nem tud WebHID-et
+  (Firefox, Safari). Chrome-ban vagy Edge-ben megjelenik.
+- **Üres a felugró lista?** Kábeles DualSense-nél zárj be minden más programot,
+  ami fogja a kontrollert (Steam, DS4Windows, PS Remote Play) — a HID-eszközt
+  egyszerre csak egy alkalmazás nyithatja meg.
+- **Rossz kontrolleren világít?** A sorrend dönt: töltsd újra az oldalt, és a
+  kívánt sorrendben engedélyezd az eszközöket.
+- **Steam fut?** A Steam felülírhatja a fénysávot a saját beállításával. Zárd
+  be, vagy kapcsold ki benne a PlayStation-kontroller támogatását.
+
 ### Akadozik, szaggat
 
 - Kapcsolj **teljes képernyőre** (`F`) — így nem kell felskálázni az ablakot.
@@ -300,8 +353,8 @@ négy játékosra bőven elég.
 | **Chrome** (asztali) | ✅ Ajánlott — teljes kontroller- és rezgéstámogatás |
 | **Edge** (asztali) | ✅ Ajánlott — ugyanaz a motor |
 | **Opera, Brave, Vivaldi** | ✅ Működik (Chromium-alapúak) |
-| **Firefox** | ⚠️ Elindul, de a kontroller gombkiosztása eltérhet, és a rezgés nem működik |
-| **Safari** | ⚠️ Korlátozott gamepad-támogatás, nem ajánlott |
+| **Firefox** | ⚠️ Elindul, de a kontroller gombkiosztása eltérhet, a rezgés és a fénysáv nem működik |
+| **Safari** | ⚠️ Korlátozott gamepad-támogatás, nincs fénysáv, nem ajánlott |
 | Mobil / tablet | ❌ Nem támogatott — négy kontrolleres, egy képernyős játék |
 
 A játék semmilyen adatot nem küld el és nem tárol; teljes egészében a te gépeden fut.
@@ -402,39 +455,66 @@ npm error enoent Could not read package.json
 
 Ez nem a te hibád és nem is baj: egyszerűen hagyd ki ezt a lépést.
 
-**1. A játék (statikus fájlok).** Töltsd fel a webgyökérbe (a domain
-document rootjába) ezeket: `index.html`, `styles.css` és a teljes `src/`
-mappa. Ennyitől a játék már megy — egy gépen, helyben.
+**1. Töltsd fel a projektet** az alkalmazás mappájába (ez lehet a domain
+könyvtára is). Pontosan ezek kellenek, más semmi:
 
-**2. A relay (csak az online szobákhoz).** A `tools/` mappát és az `app.js`-t
-tedd a webgyökéren **kívülre**, pl. `~/slag-relay/`-be, hogy ne lehessen
-böngészőből letölteni. Utána a cPanelben:
+```
+index.html   styles.css   src/   app.js   tools/
+```
+
+A `package.json` **nem** kell hozzá: az `app.js` szándékosan úgy készült, hogy
+enélkül is elinduljon. (A Node egy `.js` fájlt alapból régi modulként futtat,
+és csak a `package.json` `"type": "module"` sorától kezeli ES-modulként — ha
+az a fájl lemarad, egy `import` sortól az egész alkalmazás 500-as hibát adna.)
+
+**2. Állítsd be a Node-alkalmazást:**
 
 | Mező | Érték |
 |---|---|
-| Application root | `slag-relay` |
-| Application URL | `tank.luiz-tech.hu/relay` |
+| Application root | `tank.luiz-tech.hu` (ahova feltöltötted) |
+| Application URL | `tank.luiz-tech.hu` — **a domain gyökere** |
 | Application startup file | `app.js` |
 | Node.js version | 18 vagy újabb |
 
-A portot a Passenger adja, a relay magától felveszi. Az sem gond, hogy nem a
-gyökéren ül: az útvonal-előtagot (`/relay`) a kiszolgáló levágja.
+**3. Indítsd újra az alkalmazást.** Kész — nincs harmadik lépés.
 
-**3. Mondd meg a játéknak, hol a relay.** Az `index.html`-be, a modul
-betöltése **elé**:
+Az `app.js` **egyszerre szolgálja ki a játékot és a szobákat**. Ezért nem kell
+sem `window.SLAG_RELAY`, sem `?relay=` a linkben: minden azonos címről jön, a
+játék magától megtalálja a szobákat. A megosztható link is letisztult:
+`https://tank.luiz-tech.hu/?szoba=ABC123`.
 
-```html
-<script>window.SLAG_RELAY = 'https://tank.luiz-tech.hu/relay';</script>
-```
+A kiszolgáló-oldali fájlokat (`tools/`, `app.js`, `package.json`, rejtett
+fájlok) a beépített statikus kiszolgáló **nem adja ki** böngészőnek, akkor sem,
+ha az alkalmazás mappája egyben a webgyökér.
 
-Ellenőrzés: a `https://tank.luiz-tech.hu/relay/api/health` címnek
-`{"ok":true,"rooms":0}`-t kell adnia. Ha ezt látod, kész vagy.
+> Sok tárhelyen viszont a **webszerver előbb megtalálja** a létező fájlokat, és
+> ki is adja őket, mielőtt a Node-alkalmazáshoz jutna a kérés. Ilyenkor a fenti
+> védelem nem érvényesül. Ha ez zavar, tedd a meglévő `.htaccess` **végére**:
+>
+> ```apache
+> RedirectMatch 404 ^/(tools|node_modules)/
+> RedirectMatch 404 ^/(app\.js|package(-lock)?\.json)$
+> ```
+>
+> Titkot egyik fájl sem tartalmaz, ez csak rendrakás.
 
-> **Ha a szoba létrejön, de semmi nem frissül:** a tárhely webkiszolgálója
-> puffereli a folyamatos választ. A relay ez ellen küldi az
-> `X-Accel-Buffering: no` fejlécet, de nem minden beállítás veszi figyelembe.
-> Ilyenkor a tárhely támogatásától kell kérni, hogy a `/relay` útvonalon
-> kapcsolják ki a pufferelést (proxy buffering).
+Ellenőrzés: a `https://tank.luiz-tech.hu/api/health` címnek
+`{"ok":true,"rooms":0}`-t kell adnia.
+
+> **404-et kapsz a játékra?** Akkor az `index.html` nincs ott, ahova az
+> `app.js`-t tetted — a kettőnek **ugyanabban a mappában** kell lennie.
+>
+> **A szoba létrejön, de a másik gépen nem frissül semmi?** A tárhely
+> webkiszolgálója puffereli a folyamatos választ. A relay ez ellen küldi az
+> `X-Accel-Buffering: no` fejlécet, de nem minden beállítás veszi figyelembe;
+> ilyenkor a tárhely támogatásától kell kérni a pufferelés (proxy buffering)
+> kikapcsolását.
+
+### Ha a tárhelyeden nem futhat Node
+
+Akkor a játék statikus része (`index.html`, `styles.css`, `src/`) önmagában is
+felmásolható, és **helyben, egy gépen játszható** — csak az online szobák
+maradnak ki, mert azokhoz kell a futó folyamat.
 
 ### Hogyan játszotok
 

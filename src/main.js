@@ -31,6 +31,8 @@ import { Lobby } from './lobby.js';
 import { Game } from './game.js';
 import { NetPlay } from './netplay.js';
 import { installOnlineUI, setOnlinePlaying } from './online-ui.js';
+import { Lightbar } from './lightbar.js';
+import { installLightbarUI, setLightbarPlaying } from './lightbar-ui.js';
 
 /** Fixed simulation step: 120 Hz. */
 const STEP = 1 / 120;
@@ -112,6 +114,7 @@ function boot() {
   installWindowHandlers();
   installOverlay();
   installOnlineUI();
+  installLightbarUI();
 
   running = true;
   requestAnimationFrame(frame);
@@ -176,7 +179,13 @@ function tick(nowMs) {
   // --- hálózat -------------------------------------------------------------
   // Gazdaként a lobbi/meccs állapotát küldjük, vendégként a saját inputunkat.
   NetPlay.tick(scene === 'lobby' ? lobby : null, scene === 'game' ? game : null);
-  setOnlinePlaying(scene === 'game' || NetPlay.showingGame);
+  // A DOM-panel csak ott van útban, ahol nem kell: a lobbi Online lapján
+  // (és vendégként) mutatjuk, máshol összecsukva marad.
+  const wantPanel = NetPlay.mode !== 'off'
+    || (scene === 'lobby' && lobby && lobby.sectionId === 'online');
+  setOnlinePlaying(!wantPanel);
+  setLightbarPlaying(scene === 'game');
+  updateLightbar();
 
   // Szobából kilépve tiszta lappal folytatjuk itthon: amíg vendégek voltunk,
   // a helyi lobbi állt, és a közben odaérkezett gombnyomások ott ragadtak.
@@ -187,6 +196,53 @@ function tick(nowMs) {
   handleEndScreenInput();
   updateCursor(dt);
   draw(nowMs);
+}
+
+/**
+ * Halvány fény annak a kontrollernek, amelyik csatlakoztatva van, de még nem
+ * ül be senki vele: így is látszik, hogy a játék látja az eszközt.
+ */
+const LIGHT_IDLE = '#141414';
+
+/**
+ * A kontrollerek fénysávját a játékosuk színére állítja.
+ *
+ * A PÁROSÍTÁSRÓL: a WebHID és a Gamepad API nem osztozik azonosítón, tehát nem
+ * lehet megmondani, melyik HID-eszköz melyik gamepad. A sorrend dönt — az
+ * első engedélyezett eszköz az első csatlakoztatott kontrolleré. Ezért a
+ * színeket is gamepad-sorrendben adjuk át, a billentyűzetet kihagyva: annak
+ * nincs fénysávja, és nem tolhatja el a sort.
+ *
+ * Képkockánként fut, de a `Lightbar.apply()` csak akkor küld riportot, ha egy
+ * eszköz színe TÉNYLEGESEN változott.
+ */
+function updateLightbar() {
+  if (!Lightbar.count) return;
+
+  /** @type {Map<string, string>} deviceId → hex */
+  const byDevice = new Map();
+
+  // Vendégként a saját ülésünkről nincs hiteles képünk (a gazda lobbijában
+  // minden távoli játékos egyformán `net-…`), ezért ilyenkor marad a halvány
+  // alapfény — inkább semleges, mint hamis szín.
+  if (NetPlay.mode !== 'client') {
+    if (scene === 'game' && game) {
+      for (const tank of game.world.tanks) {
+        if (tank.deviceId && tank.color) byDevice.set(tank.deviceId, tank.color.main);
+      }
+    } else if (lobby) {
+      for (const slot of lobby.slots) {
+        if (slot && !slot.isBot && slot.color) byDevice.set(slot.deviceId, slot.color.main);
+      }
+    }
+  }
+
+  const colors = [];
+  for (const dev of Input.listDevices()) {
+    if (dev.kind !== 'gamepad' || !dev.connected) continue;
+    colors.push(byDevice.get(dev.id) || LIGHT_IDLE);
+  }
+  Lightbar.apply(colors);
 }
 
 /**
@@ -240,8 +296,12 @@ function draw(nowMs) {
     return;
   }
 
-  if (scene === 'lobby') drawLobby(ctx, lobby, t);
-  else if (game) drawGame(ctx, game, t);
+  if (scene === 'lobby') {
+    // Az Online lap a szoba állapotát mutatja; a lobbi maga nem ismeri a
+    // hálózatot, ezért itt tesszük rá.
+    lobby.net = NetPlay.summary;
+    drawLobby(ctx, lobby, t);
+  } else if (game) drawGame(ctx, game, t);
 }
 
 // ---------------------------------------------------------------------------

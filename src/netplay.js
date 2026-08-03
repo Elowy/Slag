@@ -356,6 +356,21 @@ export const NetPlay = {
   /** Vendégoldalon: meccset látunk-e (vagy még a lobbit). */
   get showingGame() { return this.mode === 'client' && this._sawGame; },
 
+  /**
+   * Amit a lobbi Online lapja kirajzol. Külön getter, hogy a renderer ne a
+   * belső mezőkbe nyúljon bele.
+   * @returns {{mode:string, code:string, peers:number, status:string}}
+   */
+  get summary() {
+    return {
+      mode: this.mode,
+      code: this.code,
+      peers: this.peers.size,
+      status: this.status,
+      error: this.error,
+    };
+  },
+
   /** @private */
   _addPeer(id) {
     if (this.peers.has(id)) return;
