@@ -3231,8 +3231,14 @@ function drawLobbyFooter(ctx, lobby, canStart, t) {
   // A sávok magassága és helye szűk: fölöttük az indítás-tábla alja 792-nél,
   // alattuk a vezérlés-legenda kupakjainak teteje 841-nél van. 796..836 az a
   // doboz, ami mindkettőt elkerüli — ezért y=816, magasság 40, MINDKÉT sávnál.
+  // A rövid életű üzenet (pl. „mind a négy hely foglalt”) MINDENT megelőz:
+  // közvetlen válasz egy gombnyomásra, és pár másodperc múlva magától eltűnik.
+  const notice = typeof lobby.notice === 'string' ? lobby.notice : '';
   const support = touch ? 'ok' : lobby.gamepadSupport;
-  if (support === 'insecure' || support === 'unsupported') {
+  if (notice) {
+    lobbyBand(ctx, 1120, 'rgba(234, 179, 8, 0.24)', 'rgba(113, 63, 18, 0.24)',
+      'rgba(250, 204, 21, 0.85)', '#fde047', notice, 19, 800, t);
+  } else if (support === 'insecure' || support === 'unsupported') {
     const insecure = support === 'insecure';
     const msg = insecure
       ? 'A böngésző letiltotta a kontrollereket, mert az oldal nem HTTPS-en fut — addig billentyűzettel játszhattok.'

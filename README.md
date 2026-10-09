@@ -156,7 +156,14 @@ A meccs magától megáll, ha valami elvenné tőletek az irányítást:
 | **Options** | A meccs indítása (legalább 2 **kész** játékos kell) |
 
 A meccs elindításához **két kész játékos elég**: aki csatlakozott, de nem nyomott
-készre, egyszerűen kimarad a meccsből — nem blokkolja a többieket. Ha egy
+készre, egyszerűen kimarad a meccsből — nem blokkolja a többieket.
+
+**Négy kontrollerrel:** a négy hely mindig a kontrollereké. Ha a billentyűzet
+véletlenül beült valamelyik helyre (a Space és az Enter mindenféle másért is
+lenyomódik), egy csatlakozó kontroller **átveszi tőle a helyet** — kivéve, ha a
+billentyűzetes játékos már készre nyomott, mert az tudatos döntés. Ha tényleg
+mind a négy helyen kész ember ül, a lobbi **kiírja, kik foglalják**, ahelyett
+hogy némán elnyelné a gombnyomást. Ha egy
 kontroller lecsatlakozik (lemerül, elveszti a kapcsolatot), a helye piros
 kerettel jelzi ezt, és pár másodperc múlva magától felszabadul.
 
@@ -342,6 +349,22 @@ A `dist/slag.html`-t a módosítás után újra kell építeni (`npm run build`)
 - A böngésző csak az első kattintás után enged hangot. **Kattints a kezdőképernyőre.**
 - Lehet, hogy a játék némítva van: nyomj **`M`**-et.
 - Nézd meg, nincs-e maga a böngészőlap némítva (jobb klikk a lapfülön).
+
+### Nem tud beülni mind a négy kontroller
+
+Nyisd meg a **`kontroller-teszt.html`** lapot (ott van a játék mellett, pl.
+`https://a-domained.hu/kontroller-teszt.html`). Ez megmutatja, amit a böngésző
+lát: hány kontroller van, milyen néven, és melyik gomb van épp lenyomva.
+
+- **Nem mind a négy látszik rajta?** Akkor a játék sem látja. Nyomj meg egy
+  gombot külön-külön mindegyiken — a böngésző csak gombnyomás után vesz észre
+  egy padet. Ha így sem jön elő, az operációs rendszer sem adja át: nézd meg a
+  Bluetooth-beállításokat. Négy DualSense Bluetooth-on sok laptop adapterének
+  sok — kábellel biztosabb.
+- **Mind a négy látszik, de valaki mégsem fér be?** Nézd meg, nem ül-e
+  **billentyűzet** vagy **bot** valamelyik helyen. A bot magától feláll, a nem
+  kész billentyűzet-helyet a kontroller átveszi, a kész billentyűzetes
+  játékosnak viszont **Esc**-cel kell kiszállnia.
 
 ### Nem világít a kontroller fénysávja
 
