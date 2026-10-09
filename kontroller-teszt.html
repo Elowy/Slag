@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slag — kontroller-diagnosztika</title>
+<!--
+  Önálló diagnosztikai lap (a gyökérben, mert a kiszolgáló a tools/ mappát tiltja). SEMMIT nem importál a játékból, hogy akkor is
+  működjön, ha magával a játékkal van a baj — és hogy `file://`-ról, dupla
+  kattintással is elinduljon.
+
+  Azt mutatja meg, amit a BÖNGÉSZŐ lát: hány kontroller van, milyen néven,
+  milyen gombkiosztással, és melyik gomb mit ad. A játék ennél többet nem tud
+  kiolvasni, tehát ami itt nem látszik, azt a játék sem látja.
+-->
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 20px; background: #0b0f17; color: #e2e8f0;
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  .sub { margin: 0 0 18px; color: #94a3b8; font-size: 14px; }
+  .banner {
+    padding: 12px 14px; border-radius: 10px; margin-bottom: 16px;
+    border: 1.5px solid; font-weight: 600;
+  }
+  .ok   { border-color: rgba(34,197,94,.7);  background: rgba(34,197,94,.12);  color: #86efac; }
+  .warn { border-color: rgba(234,179,8,.7);  background: rgba(234,179,8,.12);  color: #fde047; }
+  .bad  { border-color: rgba(239,68,68,.7);  background: rgba(239,68,68,.12);  color: #fca5a5; }
+  .count { font-size: 46px; font-weight: 800; line-height: 1; margin: 0 0 2px; }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); }
+  .pad {
+    border: 1.5px solid rgba(148,163,184,.3); border-radius: 12px;
+    padding: 12px 14px; background: rgba(15,23,42,.6);
+  }
+  .pad.live { border-color: rgba(129,140,248,.8); }
+  .pad h2 { margin: 0 0 2px; font-size: 16px; }
+  .id { font-size: 12px; color: #94a3b8; word-break: break-all; margin-bottom: 8px; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .chip {
+    padding: 2px 7px; border-radius: 6px; font-size: 11.5px; font-weight: 700;
+    background: rgba(51,65,85,.8); color: #cbd5e1;
+  }
+  .chip.hot { background: #6366f1; color: #fff; }
+  .chip.err { background: #7f1d1d; color: #fecaca; }
+  .btns { display: grid; grid-template-columns: repeat(9, 1fr); gap: 4px; margin-top: 6px; }
+  .b {
+    text-align: center; padding: 4px 0; border-radius: 5px; font-size: 10.5px; font-weight: 700;
+    background: rgba(30,41,59,.9); color: #64748b;
+  }
+  .b.on { background: #22c55e; color: #052e16; }
+  .bar { height: 7px; border-radius: 4px; background: rgba(30,41,59,.9); overflow: hidden; margin-top: 3px; }
+  .bar i { display: block; height: 100%; background: #818cf8; width: 0; }
+  .axes { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; color: #94a3b8; margin-top: 6px; }
+  .empty { color: #64748b; padding: 30px 0; text-align: center; }
+  ol { margin: 8px 0 0; padding-left: 22px; }
+  li { margin: 4px 0; }
+  .log {
+    margin-top: 18px; padding: 10px 12px; border-radius: 10px;
+    background: rgba(2,6,14,.7); border: 1px solid rgba(148,163,184,.2);
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px;
+    max-height: 160px; overflow: auto; white-space: pre-wrap;
+  }
+  button {
+    margin-top: 14px; padding: 9px 16px; border-radius: 9px; cursor: pointer;
+    border: 1.5px solid rgba(129,140,248,.6); background: rgba(12,16,26,.9);
+    color: #c7d2fe; font: inherit; font-weight: 700;
+  }
+</style>
+</head>
+<body>
+
+<h1>Slag — kontroller-diagnosztika</h1>
+<p class="sub">Ez a lap azt mutatja, amit a <b>böngésző</b> lát. Amit itt nem látsz, azt a játék sem látja.</p>
+
+<div id="env" class="banner"></div>
+
+<p class="count" id="count">0</p>
+<p class="sub" id="countText">csatlakoztatott kontroller</p>
+
+<div id="hint" class="banner warn">
+  <b>Nyomj meg egy gombot minden kontrolleren külön-külön!</b>
+  <ol>
+    <li>A böngésző adatvédelmi okból csak azután lát meg egy kontrollert, hogy <b>azon</b> megnyomtak egy gombot.</li>
+    <li>Nem elég egy padet megnyomni: <b>mind a négyet</b> külön fel kell ébreszteni.</li>
+    <li>Ha egy pad elalszik (pár perc tétlenség), újra meg kell nyomni rajta egy gombot.</li>
+  </ol>
+</div>
+
+<div id="grid" class="grid"></div>
+<div id="none" class="empty">Még egyetlen kontrollert sem lát a böngésző.</div>
+
+<div class="log" id="log"></div>
+<button id="copy" type="button">Jelentés másolása vágólapra</button>
+
+<script>
+(function () {
+  'use strict';
+
+  var NAMES = ['Kereszt','Kör','Négyzet','Három','L1','R1','L2','R2','Share','Options','L3','R3','↑','↓','←','→','PS','Pad'];
+  var lines = [];
+  var seenEver = {};
+
+  function log(msg) {
+    var t = new Date().toLocaleTimeString();
+    lines.push(t + '  ' + msg);
+    if (lines.length > 200) lines.shift();
+    document.getElementById('log').textContent = lines.join('\n');
+    document.getElementById('log').scrollTop = 1e6;
+  }
+
+  // --- környezet -----------------------------------------------------------
+  var env = document.getElementById('env');
+  var hasApi = typeof navigator.getGamepads === 'function';
+  var secure = window.isSecureContext;
+  if (!hasApi) {
+    env.className = 'banner bad';
+    env.innerHTML = '<b>Ez a böngésző nem ismeri a Gamepad API-t.</b> Használj Chrome-ot vagy Edge-et.';
+  } else if (!secure) {
+    env.className = 'banner bad';
+    env.innerHTML = '<b>Nem biztonságos kapcsolat (' + location.protocol + ').</b> '
+      + 'A böngésző ilyenkor ELREJTI a kontrollereket. HTTPS kell hozzá, vagy localhost.';
+  } else {
+    env.className = 'banner ok';
+    env.innerHTML = '<b>A környezet rendben.</b> Gamepad API: van · biztonságos kapcsolat: igen · '
+      + 'böngésző: ' + (navigator.userAgentData && navigator.userAgentData.brands
+        ? navigator.userAgentData.brands.map(function (b) { return b.brand + ' ' + b.version; }).join(', ')
+        : navigator.userAgent.slice(0, 90));
+  }
+
+  // Az esemény `gamepad` mezője elvileg mindig megvan, de egy diagnosztikai
+  // lap nem dőlhet el attól, ha mégsem: pont akkor lenne rá szükség.
+  window.addEventListener('gamepadconnected', function (e) {
+    var g = e && e.gamepad;
+    if (!g) { log('CSATLAKOZOTT  (az esemény nem hozott adatot)'); return; }
+    log('CSATLAKOZOTT  index=' + g.index + '  „' + g.id + '”  mapping=' + (g.mapping || '(nincs)'));
+  });
+  window.addEventListener('gamepaddisconnected', function (e) {
+    var g = e && e.gamepad;
+    if (!g) { log('LECSATLAKOZOTT (az esemény nem hozott adatot)'); return; }
+    log('LECSATLAKOZOTT index=' + g.index + '  „' + g.id + '”');
+  });
+
+  var grid = document.getElementById('grid');
+  var cards = {};
+
+  function card(index) {
+    if (cards[index]) return cards[index];
+    var el = document.createElement('div');
+    el.className = 'pad';
+    el.innerHTML =
+      '<h2></h2><div class="id"></div><div class="row"></div>'
+      + '<div class="btns"></div><div class="axes"></div>';
+    grid.appendChild(el);
+    cards[index] = {
+      root: el,
+      title: el.querySelector('h2'),
+      id: el.querySelector('.id'),
+      row: el.querySelector('.row'),
+      btns: el.querySelector('.btns'),
+      axes: el.querySelector('.axes'),
+      cells: [],
+    };
+    return cards[index];
+  }
+
+  function chip(text, cls) {
+    return '<span class="chip' + (cls ? ' ' + cls : '') + '">' + text + '</span>';
+  }
+
+  function tick() {
+    var pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    var live = 0;
+    var active = {};
+
+    for (var i = 0; i < pads.length; i++) {
+      var p = pads[i];
+      if (!p || p.connected === false) continue;
+      live++;
+      active[p.index] = true;
+      if (!seenEver[p.index]) {
+        seenEver[p.index] = true;
+        log('ELSŐ JEL  index=' + p.index + '  gombok=' + (p.buttons ? p.buttons.length : 0)
+          + '  tengelyek=' + (p.axes ? p.axes.length : 0));
+      }
+
+      var c = card(p.index);
+      c.root.classList.add('live');
+      // A játék pontosan ezen a néven ismeri: gp-<index>.
+      c.title.textContent = (p.index + 1) + '. kontroller  —  a játékban: gp-' + p.index;
+      c.id.textContent = p.id || '(névtelen)';
+
+      var std = p.mapping === 'standard';
+      c.row.innerHTML =
+        chip('index ' + p.index)
+        + chip(std ? 'standard kiosztás' : 'NEM standard: ' + (p.mapping || 'ismeretlen'), std ? '' : 'err')
+        + chip((p.buttons ? p.buttons.length : 0) + ' gomb', (p.buttons && p.buttons.length >= 16) ? '' : 'err')
+        + chip((p.axes ? p.axes.length : 0) + ' tengely', (p.axes && p.axes.length >= 4) ? '' : 'err')
+        + (p.vibrationActuator ? chip('rezgés') : chip('nincs rezgés'));
+
+      var n = p.buttons ? p.buttons.length : 0;
+      if (c.cells.length !== n) {
+        c.btns.innerHTML = '';
+        c.cells = [];
+        for (var k = 0; k < n; k++) {
+          var cell = document.createElement('div');
+          cell.className = 'b';
+          cell.textContent = NAMES[k] || ('#' + k);
+          c.btns.appendChild(cell);
+          c.cells.push(cell);
+        }
+      }
+      for (var k2 = 0; k2 < n; k2++) {
+        var b = p.buttons[k2];
+        var down = !!(b && (b.pressed || (typeof b.value === 'number' && b.value >= 0.5)));
+        c.cells[k2].className = 'b' + (down ? ' on' : '');
+      }
+
+      var ax = [];
+      for (var a = 0; a < (p.axes ? p.axes.length : 0); a++) {
+        ax.push('t' + a + ': ' + p.axes[a].toFixed(2));
+      }
+      // A játék a JOBB stickkel (t2/t3) mozog és a BAL stickkel (t0/t1) céloz.
+      c.axes.textContent = ax.join('   ') + '    |  mozgás: t2/t3 · célzás: t0/t1 · tűz: R2';
+    }
+
+    for (var key in cards) {
+      if (!active[key]) cards[key].root.classList.remove('live');
+    }
+
+    document.getElementById('count').textContent = String(live);
+    document.getElementById('countText').textContent = live === 1
+      ? 'csatlakoztatott kontroller' : 'csatlakoztatott kontroller';
+    document.getElementById('none').style.display = live ? 'none' : 'block';
+
+    var hint = document.getElementById('hint');
+    if (live >= 4) {
+      hint.className = 'banner ok';
+      hint.innerHTML = '<b>Mind a négy kontrollert látja a böngésző.</b> '
+        + 'Ha a játékban mégsem tud mind a négy beülni, az NEM a kontrollereken múlik — '
+        + 'nézd meg, nem ül-e bot vagy billentyűzet valamelyik helyen.';
+    } else if (live > 0) {
+      hint.className = 'banner warn';
+      hint.innerHTML = '<b>' + live + ' kontrollert lát a böngésző a 4-ből.</b> '
+        + 'Nyomj meg egy gombot azokon, amik hiányoznak — mindegyiket külön fel kell ébreszteni. '
+        + 'Ha egy pad nyomásra sem jelenik meg, azt az operációs rendszer sem adja át: '
+        + 'nézd meg a Bluetooth-beállításokban, hogy tényleg csatlakozva van-e.';
+    }
+
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  document.getElementById('copy').addEventListener('click', function () {
+    var pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    var out = ['Slag kontroller-jelentés', new Date().toISOString(),
+      'URL: ' + location.href,
+      'biztonságos kontextus: ' + window.isSecureContext,
+      'userAgent: ' + navigator.userAgent, ''];
+    var live = 0;
+    for (var i = 0; i < pads.length; i++) {
+      var p = pads[i];
+      if (!p || p.connected === false) continue;
+      live++;
+      out.push('index ' + p.index + ' | ' + p.id);
+      out.push('   mapping=' + p.mapping + '  gombok=' + p.buttons.length + '  tengelyek=' + p.axes.length
+        + '  rezgés=' + (p.vibrationActuator ? 'van' : 'nincs'));
+    }
+    out.splice(5, 0, 'élő kontrollerek: ' + live, '');
+    out.push('', '--- napló ---', lines.join('\n'));
+    var text = out.join('\n');
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(function () {
+        document.getElementById('copy').textContent = 'Kimásolva!';
+        setTimeout(function () { document.getElementById('copy').textContent = 'Jelentés másolása vágólapra'; }, 1500);
+      }, function () { window.prompt('Másold ki kézzel:', text); });
+    } else {
+      window.prompt('Másold ki kézzel:', text);
+    }
+  });
+
+  log('A lap elindult. Nyomj meg egy gombot minden kontrolleren.');
+}());
+</script>
+</body>
+</html>
