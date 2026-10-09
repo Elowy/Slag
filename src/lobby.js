@@ -186,6 +186,13 @@ export class Lobby {
 
     /** Seconds since the lobby opened — the renderer animates with it. */
     this.time = 0;
+
+    /**
+     * Rövid életű üzenet a láblécben („nincs szabad hely…”).
+     * A csendes elutasítás a legrosszabb visszajelzés: a játékos csak nyomkodja
+     * a gombot, és semmi nem történik. @type {{text:string, t:number}|null}
+     */
+    this._notice = null;
   }
 
   // ---------------------------------------------------------------------------
@@ -268,6 +275,13 @@ export class Lobby {
   /** @returns {Array<object>} the device list of the last `update()`. */
   get devices() {
     return this._devices;
+  }
+
+  /**
+   * @returns {string} a lábléc rövid életű üzenete, vagy üres sztring.
+   */
+  get notice() {
+    return this._notice ? this._notice.text : '';
   }
 
   /** @returns {boolean} false while the browser reports no gamepad at all. */
@@ -397,6 +411,11 @@ export class Lobby {
     this.time += step;
 
     if (this._inputBlock > 0) this._inputBlock -= step;
+
+    if (this._notice) {
+      this._notice.t -= step;
+      if (this._notice.t <= 0) this._notice = null;
+    }
 
     this._advanceSlots(step);
 
@@ -679,6 +698,34 @@ export class Lobby {
     return -1;
   }
 
+  /**
+   * Egy még NEM kész billentyűzet-hely felszabadítása egy kontroller javára.
+   * Hátulról keresünk: a legkésőbb beült hely adja át magát előbb.
+   * Aki már készre nyomott, azt nem bántjuk — az tudatos játékos.
+   * @private @returns {number} a felszabadult hely sorszáma, vagy -1
+   */
+  _evictIdleKeyboardSeat() {
+    for (let i = this._slots.length - 1; i >= 0; i--) {
+      const slot = this._slots[i];
+      if (!slot || slot.isBot || slot.ready) continue;
+      if (typeof slot.deviceId === 'string' && slot.deviceId.startsWith('kb-')) {
+        this._slots[i] = null;
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  /** A „nincs szabad hely” üzenet, megnevezve, ki foglalja. @private */
+  _fullSeatsText() {
+    const names = [];
+    for (let i = 0; i < this._slots.length; i++) {
+      const slot = this._slots[i];
+      if (slot && !slot.isBot) names.push(slot.deviceLabel || slot.name);
+    }
+    return `Mind a négy hely foglalt (${names.join(', ')}) — Körrel vagy Esc-kel tud valaki kiszállni.`;
+  }
+
   /** @returns {number} emberi (nem gépi) játékosok által elfoglalt székek. */
   get humanCount() {
     let n = 0;
@@ -837,7 +884,18 @@ export class Lobby {
   _join(device) {
     let slotIndex = this._slots.indexOf(null);
     if (slotIndex < 0) slotIndex = this._evictBotSeat();
-    if (slotIndex < 0) return; // all four seats are taken by humans
+    // Négy kontrollerrel a billentyűzet kiszorítaná a negyedik embert. A
+    // billentyűzet az EGYETLEN eszköz, ami VÉLETLENÜL is beülhet: a Space és
+    // az Enter mindenféle másért is lenyomódik, míg egy padnél az R2 mindig
+    // szándékos. Ezért egy még nem kész billentyűzet-hely átadja magát egy
+    // kontrollernek — ugyanazon az elven, ahogy a botok is felállnak.
+    if (slotIndex < 0 && device.kind === 'gamepad') slotIndex = this._evictIdleKeyboardSeat();
+    if (slotIndex < 0) {
+      // Csendben elutasítani a legrosszabb: a játékos csak nyomkodja a gombot.
+      this._notice = { text: this._fullSeatsText(), t: 3.5 };
+      Audio.play('colorChange', { volume: 0.5, rate: 0.5 });
+      return;
+    }
 
     const color = this._firstFreeColor();
     this._slots[slotIndex] = {
