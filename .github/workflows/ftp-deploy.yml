@@ -25,6 +25,11 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      csak_proba:
+        description: 'Csak kapcsolatpróba — NEM tölt fel semmit'
+        type: boolean
+        default: true
 
 # Két egyszerre futó feltöltés összekeverné a fájlokat a szerveren.
 concurrency:
@@ -71,8 +76,112 @@ jobs:
             } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
           fi
 
-      - name: A feltöltendő fájlok összeállítása
+      # Az első beállításkor ez a lépés mondja meg, mi a baj, ha valami nem
+      # stimmel — feltöltés nélkül, tehát kockázat nélkül. Kézi indításnál
+      # alapból CSAK ez fut le.
+      - name: Kapcsolatpróba
         if: steps.creds.outputs.ready == 'true'
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+          REMOTE_DIR: ${{ vars.FTP_REMOTE_DIR || 'tank.luiz-tech.hu' }}
+          SSL_VERIFY: ${{ vars.FTP_SSL_VERIFY || 'true' }}
+        run: |
+          set -uo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+
+          job="$(mktemp)"; chmod 600 "$job"
+          trap 'rm -f "$job"' EXIT
+          # `cmd:fail-exit` nélkül az lftp egy hibás `cd` után is nullával
+          # térne vissza, és a próba hamisan sikeresnek látszana.
+          cat > "$job" <<LFTP
+          set ftp:ssl-allow true;
+          set ftp:ssl-force true;
+          set ftp:ssl-protect-data true;
+          set ssl:verify-certificate ${SSL_VERIFY};
+          set net:max-retries 2;
+          set net:timeout 15;
+          set cmd:fail-exit true;
+          open -u "${FTP_USERNAME}","${FTP_PASSWORD}" "${FTP_HOST}";
+          cls -1 "${REMOTE_DIR}";
+          bye
+          LFTP
+
+          out="$(lftp -f "$job" 2>&1)"; rc=$?
+          echo "$out"
+
+          if [ "$rc" -eq 0 ]; then
+            echo "A kapcsolat él, és a célmappa elérhető: $REMOTE_DIR"
+            {
+              echo "## A kapcsolat rendben"
+              echo ""
+              echo "Célmappa: \`$REMOTE_DIR\` — a benne talált bejegyzések:"
+              echo ""
+              echo '```'
+              echo "$out" | head -40
+              echo '```'
+            } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            exit 0
+          fi
+
+          # --- Hiba: megnevezzük, MI a baj, ne a felhasználó találgasson ---
+          echo "A kapcsolat nem jött létre."
+          hint=""
+          case "$out" in
+            *"Login failed"*|*"530"*|*"Access denied"*)
+              hint="Rossz felhasználónév vagy jelszó. A cPanelben: FTP-fiókok → Configure FTP Client. A felhasználónév gyakran a teljes alak (pl. valaki@domain.hu)." ;;
+            *ertificate*|*"verify"*|*"self-signed"*|*"SSL"*|*"TLS"*)
+              hint="A tanúsítvány ellenőrzése bukott el. Megosztott tárhelyen a tanúsítvány gyakran a SZERVER nevére szól, nem a domainére. Vagy add meg FTP_HOST-nak a szerver saját nevét, vagy állítsd az FTP_SSL_VERIFY változót false-ra." ;;
+            *"550"*|*"Access failed"*|*"No such file"*)
+              hint="A megadott célmappa nem létezik: '$REMOTE_DIR'. Az alábbi lista mutatja, mi van a belépési könyvtárban — abból válaszd ki a helyeset, és add meg FTP_REMOTE_DIR változóként." ;;
+            *"Name or service not known"*|*"Connection refused"*|*"timeout"*|*"Host is unreachable"*)
+              hint="A kiszolgáló nem érhető el ezen a néven: '$FTP_HOST'. Ellenőrizd az FTP_HOST titkot (a cPanel FTP-fiókok oldalán szerepel)." ;;
+            *)
+              hint="A fenti hibaüzenet mondja meg, mi történt." ;;
+          esac
+          echo "$hint"
+
+          # Ha a mappa a gyanús, megmutatjuk, mi van ott valójában.
+          listing=""
+          case "$out" in
+            *"550"*|*"Access failed"*|*"No such file"*)
+              job2="$(mktemp)"; chmod 600 "$job2"
+              cat > "$job2" <<LFTP2
+          set ftp:ssl-allow true;
+          set ssl:verify-certificate ${SSL_VERIFY};
+          set net:timeout 15;
+          open -u "${FTP_USERNAME}","${FTP_PASSWORD}" "${FTP_HOST}";
+          cls -1;
+          bye
+          LFTP2
+              listing="$(lftp -f "$job2" 2>&1 | head -40)"
+              rm -f "$job2"
+              echo "A belépési könyvtár tartalma:"; echo "$listing"
+              ;;
+          esac
+
+          {
+            echo "## A kapcsolat nem jött létre"
+            echo ""
+            echo "$hint"
+            echo ""
+            echo "A kiszolgáló válasza:"
+            echo '```'
+            echo "$out" | tail -20
+            echo '```'
+            if [ -n "$listing" ]; then
+              echo ""
+              echo "A belépési könyvtárban ezek vannak — ebből válaszd ki a célmappát:"
+              echo '```'
+              echo "$listing"
+              echo '```'
+            fi
+          } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          exit 1
+
+      - name: A feltöltendő fájlok összeállítása
+        if: steps.creds.outputs.ready == 'true' && inputs.csak_proba != true
         run: |
           set -euo pipefail
           # Csak az megy fel, amire a játéknak és a kiszolgálónak szüksége van.
@@ -92,11 +201,11 @@ jobs:
           find _upload -type f | sort | sed 's/^/  /'
 
       - name: lftp telepítése
-        if: steps.creds.outputs.ready == 'true'
+        if: steps.creds.outputs.ready == 'true' && inputs.csak_proba != true
         run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
 
       - name: Feltöltés
-        if: steps.creds.outputs.ready == 'true'
+        if: steps.creds.outputs.ready == 'true' && inputs.csak_proba != true
         env:
           FTP_HOST: ${{ secrets.FTP_HOST }}
           FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
@@ -132,7 +241,7 @@ jobs:
           lftp -f "$job"
 
       - name: Ellenőrzés — tényleg az új változat megy ki?
-        if: steps.creds.outputs.ready == 'true'
+        if: steps.creds.outputs.ready == 'true' && inputs.csak_proba != true
         env:
           SITE_URL: ${{ vars.SITE_URL || 'https://tank.luiz-tech.hu' }}
         run: |

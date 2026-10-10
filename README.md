@@ -620,6 +620,16 @@ Változóként (Variables fül) felülírható: `FTP_REMOTE_DIR`
 Amíg a titkok nincsenek megadva, a workflow **nem bukik pirosra**: kiírja a
 futás összegzőjébe, mit kell beállítani.
 
+**Először próbáld ki feltöltés nélkül.** Az **Actions → Feltöltés a tárhelyre
+(FTP) → Run workflow** gombnál a *„Csak kapcsolatpróba"* kapcsoló alapból be
+van kapcsolva: ilyenkor a workflow csak bejelentkezik és kilistázza a
+célmappát, **semmit nem tölt fel**. Ha valami nem stimmel, megnevezi, hogy
+mi — rossz jelszó, tanúsítvány, nem létező mappa vagy elérhetetlen kiszolgáló
+—, és hibás mappanévnél kiírja, milyen mappák vannak valójában a tárhelyen.
+
+Ha a próba zöld, kapcsold ki a kapcsolót (vagy egyszerűen pusholj a `main`-re),
+és megtörténik a tényleges feltöltés.
+
 Amit tudni érdemes:
 
 - A feltöltés **soha nem töröl** a szerveren (nincs `--delete`), tehát a
