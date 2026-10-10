@@ -104,6 +104,11 @@ jobs:
           set net:timeout 15;
           set cmd:fail-exit true;
           open -u "${FTP_USERNAME}","${FTP_PASSWORD}" "${FTP_HOST}";
+          echo "--- a belépési könyvtár teljes útvonala ---";
+          pwd;
+          echo "--- mi van a belépési könyvtárban ---";
+          cls -1;
+          echo "--- a célmappa tartalma: ${REMOTE_DIR} ---";
           cls -1 "${REMOTE_DIR}";
           bye
           LFTP
