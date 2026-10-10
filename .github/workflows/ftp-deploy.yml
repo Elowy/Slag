@@ -108,6 +108,8 @@ jobs:
           pwd;
           echo "--- mi van a belépési könyvtárban ---";
           cls -1;
+          echo "--- egy szinttel feljebb (..) ---";
+          cls -1 ..;
           echo "--- a célmappa tartalma: ${REMOTE_DIR} ---";
           cls -1 "${REMOTE_DIR}";
           bye
