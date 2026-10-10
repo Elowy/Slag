@@ -1,0 +1,171 @@
+# A játék feltöltése a saját tárhelyre FTP-n (cPanel).
+#
+# MIÉRT KELL EZ A MÁSIK WORKFLOW MELLÉ
+# A `pages.yml` a GitHub Pages-re publikál (elowy.github.io), ami egy MÁSIK
+# cím. A saját domainre (pl. tank.luiz-tech.hu) semmi nem töltött fel eddig:
+# azt kézzel, SSH-n kellett frissíteni.
+#
+# MIÉRT lftp ÉS NEM KÉSZ ACTION
+# Így nincs harmadik féltől származó függőség a jelszavad közelében, és pontosan
+# látszik, melyik fájl megy fel. A feltöltés SOHA nem töröl a szerveren: a
+# `.htaccess`, a `php.ini` és minden más, ami ott van, érintetlen marad.
+#
+# EGYSZERI BEÁLLÍTÁS — Settings → Secrets and variables → Actions:
+#   Secrets:    FTP_HOST, FTP_USERNAME, FTP_PASSWORD
+#   Variables:  FTP_REMOTE_DIR  (alapértelmezés: tank.luiz-tech.hu)
+#               SITE_URL        (alapértelmezés: https://tank.luiz-tech.hu)
+#               FTP_SSL_VERIFY  (alapértelmezés: true)
+#
+# Amíg a secretek nincsenek beállítva, a futás NEM bukik pirosra: kiírja a
+# job összegzőjébe, pontosan mit kell megadni.
+name: Feltöltés a tárhelyre (FTP)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Két egyszerre futó feltöltés összekeverné a fájlokat a szerveren.
+concurrency:
+  group: ftp-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Megvannak-e a hozzáférési adatok?
+        id: creds
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+        run: |
+          if [ -n "$FTP_HOST" ] && [ -n "$FTP_USERNAME" ] && [ -n "$FTP_PASSWORD" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Az FTP-feltöltés még nincs beállítva"
+              echo ""
+              echo "A feltöltéshez három titok kell. **Settings → Secrets and variables → Actions → New repository secret:**"
+              echo ""
+              echo "| Név | Mi kerül bele |"
+              echo "|---|---|"
+              echo "| \`FTP_HOST\` | az FTP-kiszolgáló címe (cPanelben: FTP-fiókok → Configure FTP Client) |"
+              echo "| \`FTP_USERNAME\` | az FTP-felhasználó neve |"
+              echo "| \`FTP_PASSWORD\` | a hozzá tartozó jelszó |"
+              echo ""
+              echo "Változóként (Variables fül) felülírható még:"
+              echo "\`FTP_REMOTE_DIR\` (alapértelmezés \`tank.luiz-tech.hu\`), "
+              echo "\`SITE_URL\` (alapértelmezés \`https://tank.luiz-tech.hu\`), "
+              echo "\`FTP_SSL_VERIFY\` (alapértelmezés \`true\`)."
+              echo ""
+              echo "Addig a tárhely frissítése kézzel megy: \`./deploy.sh /home/FELHASZNALO/domain.hu\`"
+            } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          fi
+
+      - name: A feltöltendő fájlok összeállítása
+        if: steps.creds.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          # Csak az megy fel, amire a játéknak és a kiszolgálónak szüksége van.
+          # A `_upload/` tartalma PONTOSAN az, ami a szerverre kerül.
+          mkdir -p _upload/src _upload/tools _upload/tmp
+          cp index.html styles.css kontroller-teszt.html app.js _upload/
+          cp src/*.js _upload/src/
+          cp tools/*.mjs _upload/tools/
+
+          # A cPanel Passenger ettől a fájltól indítja újra a Node-alkalmazást.
+          # A commit azonosítója azért kerül bele, hogy MINDIG változzon:
+          # változatlan tartalmat az lftp át sem küldene, és elmaradna az
+          # újraindítás.
+          echo "${{ github.sha }} @ $(date -u +%FT%TZ)" > _upload/tmp/restart.txt
+
+          echo "Feltöltendő fájlok:"
+          find _upload -type f | sort | sed 's/^/  /'
+
+      - name: lftp telepítése
+        if: steps.creds.outputs.ready == 'true'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+
+      - name: Feltöltés
+        if: steps.creds.outputs.ready == 'true'
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+          REMOTE_DIR: ${{ vars.FTP_REMOTE_DIR || 'tank.luiz-tech.hu' }}
+          SSL_VERIFY: ${{ vars.FTP_SSL_VERIFY || 'true' }}
+        run: |
+          set -euo pipefail
+          # A `mirror -R` feltölt, de SOHA nem töröl: nincs `--delete`. A
+          # szerveren lévő .htaccess, php.ini és a többi érintetlen marad.
+          #
+          # A tanúsítvány-ellenőrzés alapból BE van kapcsolva. Megosztott
+          # tárhelyen a tanúsítvány gyakran a szerver nevére szól, nem a
+          # domainére — ha emiatt elbukna, a FTP_SSL_VERIFY változót
+          # állítsd `false`-ra, tudatos döntésként.
+          # A parancsokat FÁJLBÓL adjuk az lftp-nek, nem a parancssorból: így a
+          # jelszó nem jelenik meg a futó folyamatok listájában. A fájl csak a
+          # futtatónak olvasható, és a lépés végén törlődik.
+          job="$(mktemp)"
+          chmod 600 "$job"
+          trap 'rm -f "$job"' EXIT
+          cat > "$job" <<LFTP
+          set ftp:ssl-allow true;
+          set ftp:ssl-force true;
+          set ftp:ssl-protect-data true;
+          set ssl:verify-certificate ${SSL_VERIFY};
+          set net:max-retries 3;
+          set net:timeout 20;
+          open -u "${FTP_USERNAME}","${FTP_PASSWORD}" "${FTP_HOST}";
+          mirror -R --verbose --parallel=4 _upload/ "${REMOTE_DIR}"/;
+          bye
+          LFTP
+          lftp -f "$job"
+
+      - name: Ellenőrzés — tényleg az új változat megy ki?
+        if: steps.creds.outputs.ready == 'true'
+        env:
+          SITE_URL: ${{ vars.SITE_URL || 'https://tank.luiz-tech.hu' }}
+        run: |
+          set -uo pipefail
+          # A Passenger újraindulásának hagyunk időt.
+          sleep 10
+          fail=0
+
+          # Minden feltöltött forrásmodul elérhető-e, és BITRE azonos-e azzal,
+          # ami a repóban van? Enélkül egy félbemaradt feltöltés is zöld lenne.
+          # A lista a FELTÖLTÖTT fájlokból jön: ha egy új modul kerül a projektbe,
+          # magától bekerül az ellenőrzésbe is. (A `ls src/*.js` már tartalmazza
+          # a `src/` előtagot — egy korábbi `sed` itt `src/src/`-t csinált belőle.)
+          for f in index.html styles.css kontroller-teszt.html $(cd _upload && ls src/*.js); do
+            local_sum=$(sha256sum "_upload/$f" | cut -d' ' -f1)
+            remote_sum=$(curl -fsS --max-time 20 "$SITE_URL/$f" | sha256sum | cut -d' ' -f1)
+            if [ "$local_sum" = "$remote_sum" ]; then
+              echo "  ok   $f"
+            else
+              echo "  HIBA $f — a kint lévő fájl nem azonos"; fail=1
+            fi
+          done
+
+          # A szoba-kiszolgáló csak akkor él, ha a Node-alkalmazás is fut.
+          # Ennek hiánya nem buktatja a feltöltést: a játék nélküle is megy.
+          if curl -fsS --max-time 20 "$SITE_URL/api/health" | grep -q '"ok":true'; then
+            echo "  ok   /api/health — az online szoba él"
+          else
+            echo "  figyelem: az /api/health nem válaszol — a játék megy, az online szoba nem."
+            echo "## Az online szoba nem válaszol" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            echo "A statikus játék fent van, de a Node-alkalmazás nem fut. Lásd a README hibaelhárítás fejezetét." >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          fi
+
+          [ "$fail" -eq 0 ] || exit 1
+          echo "## A tárhely frissült" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          echo "Minden feltöltött fájl bitre azonos a repóban lévővel." >> "${GITHUB_STEP_SUMMARY:-/dev/null}"

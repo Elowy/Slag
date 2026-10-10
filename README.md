@@ -598,6 +598,45 @@ Három csapdát kerül el, amibe kézi másolásnál könnyű beleesni: a `cp -r
 `tmp/restart.txt`-nek az **alkalmazás** mappájába kell kerülnie, nem oda, ahol
 épp állsz.
 
+### Frissítés magától, minden pusholásnál (GitHub Actions)
+
+A `.github/workflows/ftp-deploy.yml` minden `main`-re érkező pushnál feltölti a
+játékot a tárhelyre FTP-n, és **ellenőrzi is**: minden feltöltött fájlt
+visszaolvas a domainről, és összeveti a repóban lévővel.
+
+Egyszeri beállítás — **Settings → Secrets and variables → Actions**:
+
+| Titok (Secrets) | Mi kerül bele |
+|---|---|
+| `FTP_HOST` | az FTP-kiszolgáló címe (cPanel → FTP-fiókok → *Configure FTP Client*) |
+| `FTP_USERNAME` | az FTP-felhasználó neve |
+| `FTP_PASSWORD` | a hozzá tartozó jelszó |
+
+Változóként (Variables fül) felülírható: `FTP_REMOTE_DIR`
+(alapértelmezés `tank.luiz-tech.hu`), `SITE_URL`
+(alapértelmezés `https://tank.luiz-tech.hu`), `FTP_SSL_VERIFY`
+(alapértelmezés `true`).
+
+Amíg a titkok nincsenek megadva, a workflow **nem bukik pirosra**: kiírja a
+futás összegzőjébe, mit kell beállítani.
+
+Amit tudni érdemes:
+
+- A feltöltés **soha nem töröl** a szerveren (nincs `--delete`), tehát a
+  `.htaccess`, a `php.ini` és minden más a helyén marad.
+- Minden futásnál felkerül egy `tmp/restart.txt` a commit azonosítójával, ami
+  **újraindítja a Node-alkalmazást** — enélkül a szoba-kiszolgáló a régi
+  kóddal futna tovább.
+- Megosztott tárhelyen az FTPS-tanúsítvány gyakran a szerver nevére szól, nem a
+  domainére. Ha emiatt bukna a kapcsolat, a `FTP_SSL_VERIFY` változót állítsd
+  `false`-ra — tudatos döntésként, mert attól kezdve a feltöltés nem
+  ellenőrzi a tanúsítványt.
+
+> A `pages.yml` ettől független: az a **GitHub Pages**-re publikál
+> (`https://<felhasználó>.github.io/Slag/`), ami egy másik cím. A Pages
+> egyszeri bekapcsolást igényel: **Settings → Pages → Source: _GitHub Actions_**.
+> Pages-en a játék megy, az online szoba viszont nem: ahhoz Node kell.
+
 ### Ha a tárhelyeden nem futhat Node
 
 Akkor a játék statikus része (`index.html`, `styles.css`, `src/`) önmagában is
